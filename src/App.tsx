@@ -69,10 +69,13 @@ export default function App() {
   const [newProjectData, setNewProjectData] = useState({ name: '', type: 'create', url: '', path: '' });
   const [isNewScriptOpen, setIsNewScriptOpen] = useState(false);
   const [newScriptName, setNewScriptName] = useState('');
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [history, setHistory] = useState<ScriptBlock[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [selectionRange, setSelectionRange] = useState<{ start: number, end: number } | null>(null);
 
   const blockRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
 
@@ -182,6 +185,77 @@ export default function App() {
       toast.error('Failed to export PDF');
     }
   };
+
+  const getSelectedIndices = () => {
+    if (!selectionRange) return [];
+    const start = Math.min(selectionRange.start, selectionRange.end);
+    const end = Math.max(selectionRange.start, selectionRange.end);
+    const indices = [];
+    for (let i = start; i <= end; i++) indices.push(i);
+    return indices;
+  };
+
+  useEffect(() => {
+    const handleCopy = (e: ClipboardEvent) => {
+      if (selectionRange) {
+        const target = e.target as HTMLElement;
+        // If we are inside a textarea and it has its own selection, let it handle it
+        if (target.tagName === 'TEXTAREA') {
+          const ta = target as HTMLTextAreaElement;
+          if (ta.selectionStart !== ta.selectionEnd) return;
+        }
+
+        e.preventDefault();
+        const indices = getSelectedIndices();
+        const selectedBlocks = indices.map(i => blocks[i]);
+        const text = blocksToFountain(selectedBlocks);
+        e.clipboardData?.setData('text/plain', text);
+        toast.info(`Copied ${selectedBlocks.length} lines`);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (selectionRange && (e.key === 'Backspace' || e.key === 'Delete')) {
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'TEXTAREA') {
+          const ta = target as HTMLTextAreaElement;
+          if (ta.selectionStart !== ta.selectionEnd) return;
+        }
+
+        e.preventDefault();
+        const indices = getSelectedIndices();
+        const newBlocks = blocks.filter((_, i) => !indices.includes(i));
+        if (newBlocks.length === 0) {
+          newBlocks.push({ id: Math.random().toString(36).substr(2, 9), type: 'scene', content: '' });
+        }
+        setBlocks(newBlocks);
+        saveToHistory(newBlocks);
+        setSelectionRange(null);
+        const focusIndex = Math.max(0, Math.min(indices[0], newBlocks.length - 1));
+        setActiveBlockId(newBlocks[focusIndex].id);
+        setTimeout(() => blockRefs.current[newBlocks[focusIndex].id]?.focus(), 0);
+        toast.info(`Deleted ${indices.length} lines`);
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'TEXTAREA') {
+          const ta = target as HTMLTextAreaElement;
+          // Only select all blocks if the textarea is empty or fully selected already
+          if (ta.value.length > 0 && (ta.selectionStart !== 0 || ta.selectionEnd !== ta.value.length)) return;
+        }
+        e.preventDefault();
+        setSelectionRange({ start: 0, end: blocks.length - 1 });
+      }
+    };
+
+    window.addEventListener('copy', handleCopy);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('copy', handleCopy);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectionRange, blocks]);
 
   const saveToHistory = (newBlocks: ScriptBlock[]) => {
     const newHistory = history.slice(0, historyIndex + 1);
@@ -608,19 +682,26 @@ export default function App() {
     }
   };
 
-  const handleDeleteFile = async (filename: string) => {
-    if (!activeProject) return;
-    if (!confirm(`Are you sure you want to delete ${filename}?`)) return;
+  const confirmDeleteFile = (filename: string) => {
+    setFileToDelete(filename);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const performDeleteFile = async () => {
+    if (!activeProject || !fileToDelete) return;
     try {
-      await fetch(`/api/projects/${activeProject}/files/${filename}`, { method: 'DELETE' });
+      await fetch(`/api/projects/${activeProject}/files/${fileToDelete}`, { method: 'DELETE' });
       fetchFiles(activeProject);
-      if (activeFile === filename) {
+      if (activeFile === fileToDelete) {
         setActiveFile(null);
         setBlocks([]);
       }
       toast.success('File deleted');
     } catch (error) {
       toast.error('Failed to delete file');
+    } finally {
+      setIsDeleteConfirmOpen(false);
+      setFileToDelete(null);
     }
   };
 
@@ -871,7 +952,7 @@ export default function App() {
                             className="opacity-0 group-hover:opacity-100 h-6 w-6 text-gray-400 hover:text-red-500"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDeleteFile(file);
+                              confirmDeleteFile(file);
                             }}
                           >
                             <Trash2 className="w-3 h-3" />
@@ -888,18 +969,52 @@ export default function App() {
           {/* Editor Canvas */}
           <main 
             id="editor-container"
-            className="flex-1 flex justify-center overflow-y-auto p-10 bg-transparent scrollbar-hide"
+            className="flex-1 flex justify-center overflow-y-auto p-10 bg-transparent scrollbar-hide cursor-text"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && blocks.length > 0) {
+                const lastBlock = blocks[blocks.length - 1];
+                setActiveBlockId(lastBlock.id);
+                blockRefs.current[lastBlock.id]?.focus();
+                const el = blockRefs.current[lastBlock.id];
+                if (el) el.setSelectionRange(el.value.length, el.value.length);
+              }
+            }}
           >
             <motion.div 
               style={{ scale: zoom, transformOrigin: 'top center' }}
-              className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-16 md:p-20 relative mb-10"
+              className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-16 md:p-20 relative mb-10 cursor-text"
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                if (target.tagName !== 'TEXTAREA' && blocks.length > 0) {
+                  const lastBlock = blocks[blocks.length - 1];
+                  setActiveBlockId(lastBlock.id);
+                  blockRefs.current[lastBlock.id]?.focus();
+                  // Move cursor to end
+                  const el = blockRefs.current[lastBlock.id];
+                  if (el) {
+                    el.setSelectionRange(el.value.length, el.value.length);
+                  }
+                }
+              }}
             >
               {activeFile ? (
                 <div className="space-y-0">
                   {blocks.map((block, index) => (
                     <div 
                       key={block.id} 
-                      className={`group relative ${activeBlockId === block.id ? 'active-block' : ''}`}
+                      className={`group relative ${activeBlockId === block.id ? 'active-block' : ''} ${
+                        getSelectedIndices().includes(index) ? 'bg-indigo-500/10 ring-1 ring-indigo-500/20 rounded-md' : ''
+                      }`}
+                      onClick={(e) => {
+                        if (e.shiftKey && activeBlockId) {
+                          const activeIndex = blocks.findIndex(b => b.id === activeBlockId);
+                          if (activeIndex !== -1) {
+                            setSelectionRange({ start: activeIndex, end: index });
+                          }
+                        } else {
+                          setSelectionRange(null);
+                        }
+                      }}
                     >
                       <textarea
                         ref={el => blockRefs.current[block.id] = el}
@@ -907,7 +1022,12 @@ export default function App() {
                         className={`script-editor-textarea script-${block.type} ${block.type === 'character' ? 'font-bold' : ''}`}
                         value={block.content}
                         placeholder={block.type === 'scene' ? 'SCENE HEADING...' : ''}
-                        onFocus={() => setActiveBlockId(block.id)}
+                        onFocus={() => {
+                          setActiveBlockId(block.id);
+                          if (!selectionRange || !getSelectedIndices().includes(index)) {
+                            setSelectionRange(null);
+                          }
+                        }}
                         onChange={(e) => {
                           let val = e.target.value;
                           if (block.type === 'scene' || block.type === 'character' || block.type === 'transition' || block.type === 'shot') {
@@ -1297,6 +1417,25 @@ export default function App() {
               >
                 {newProjectData.type === 'clone' ? 'Clone Project' : (newProjectData.type === 'link' ? 'Link Project' : 'Create Project')}
               </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-600">
+                <Trash2 className="w-5 h-5" />
+                Delete Script
+              </DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete <strong>{fileToDelete}</strong>? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={performDeleteFile}>Delete Script</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
