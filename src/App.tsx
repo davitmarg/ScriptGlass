@@ -129,6 +129,11 @@ export default function App() {
   useEffect(() => {
     const words = (content || '').trim() ? (content || '').trim().split(/\s+/).length : 0;
     setWordCount(words);
+    
+    if (editorRef.current) {
+      editorRef.current.style.height = 'auto';
+      editorRef.current.style.height = `${editorRef.current.scrollHeight}px`;
+    }
   }, [content]);
 
   const fetchProjects = async () => {
@@ -323,27 +328,27 @@ export default function App() {
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen w-full bg-[#f2f2f2] text-[#1a1a1a] font-sans selection:bg-blue-100 overflow-hidden">
+      <div className="flex flex-col h-screen w-full bg-transparent text-indigo-950 font-sans selection:bg-indigo-100 overflow-hidden">
         <Toaster position="top-center" />
         
         {/* Title Bar */}
-        <div className="h-[38px] bg-[#ebebeb] border-b border-[#d1d1d1] flex items-center px-4 shrink-0">
+        <div className="h-[38px] glass-panel border-b flex items-center px-4 shrink-0">
           <div className="flex gap-2 mr-6">
-            <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
-            <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
-            <div className="w-3 h-3 rounded-full bg-[#28c840]" />
+            <div className="w-3 h-3 rounded-full bg-red-400/80" />
+            <div className="w-3 h-3 rounded-full bg-amber-400/80" />
+            <div className="w-3 h-3 rounded-full bg-emerald-400/80" />
           </div>
-          <div className="text-[12px] font-semibold text-[#666666] uppercase tracking-wider">
+          <div className="text-[12px] font-semibold text-indigo-900/60 uppercase tracking-wider">
             ScriptFlow — {activeFile || 'Untitled'}
           </div>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
           {/* Sidebar */}
-          <aside className="w-12 bg-[#ebebeb] border-r border-[#d1d1d1] flex flex-col items-center py-5 gap-6 shrink-0">
+          <aside className="w-12 glass-panel border-r flex flex-col items-center py-5 gap-6 shrink-0">
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isSidebarOpen ? 'text-[#3b82f6]' : 'text-[#666666] opacity-50'}`}
+                className={`transition-colors ${isSidebarOpen ? 'text-indigo-600' : 'text-indigo-400/50'}`}
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               >
                 <Folder className="w-5 h-5" />
@@ -353,7 +358,7 @@ export default function App() {
 
             <Tooltip>
               <TooltipTrigger 
-                className="text-[#666666] opacity-50 hover:opacity-100 transition-opacity"
+                className="text-indigo-900/40 hover:text-indigo-600 transition-colors"
                 onClick={() => setIsNewProjectOpen(true)}
               >
                 <Plus className="w-5 h-5" />
@@ -363,7 +368,7 @@ export default function App() {
 
             <Tooltip>
               <TooltipTrigger 
-                className="text-[#666666] opacity-50 hover:opacity-100 transition-opacity"
+                className="text-indigo-900/40 hover:text-indigo-600 transition-colors"
                 onClick={() => {
                   if (!activeProject) {
                     toast.error('Please select or create a project first');
@@ -379,7 +384,7 @@ export default function App() {
 
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isTerminalOpen ? 'text-[#3b82f6]' : 'text-[#666666] opacity-50'}`}
+                className={`transition-colors ${isTerminalOpen ? 'text-indigo-600' : 'text-indigo-900/40'}`}
                 onClick={() => {
                   setIsTerminalOpen(!isTerminalOpen);
                   if (!isTerminalOpen && activeProject) fetchGitLog(activeProject);
@@ -392,7 +397,7 @@ export default function App() {
 
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isSettingsOpen ? 'text-[#3b82f6]' : 'text-[#666666] opacity-50'}`}
+                className={`transition-colors ${isSettingsOpen ? 'text-indigo-600' : 'text-indigo-900/40'}`}
                 onClick={() => setIsSettingsOpen(true)}
               >
                 <SettingsIcon className="w-5 h-5" />
@@ -403,7 +408,7 @@ export default function App() {
             <div className="mt-auto pb-4 flex flex-col gap-6">
               <Tooltip>
                 <TooltipTrigger 
-                  className={`transition-colors ${isSaving ? 'text-[#3b82f6] animate-pulse' : 'text-[#666666] opacity-50'}`}
+                  className={`transition-colors ${isSaving ? 'text-indigo-600 animate-pulse' : 'text-indigo-900/40'}`}
                   onClick={handleSave}
                   disabled={isSaving || !activeFile}
                 >
@@ -418,7 +423,7 @@ export default function App() {
                     render={
                       <DialogTrigger 
                         render={
-                          <button className={`transition-colors ${isSyncing ? 'text-[#3b82f6] animate-spin' : 'text-[#666666] opacity-50'}`} />
+                          <button className={`transition-colors ${isSyncing ? 'text-indigo-600 animate-spin' : 'text-indigo-900/40'}`} />
                         } 
                       />
                     }
@@ -439,10 +444,10 @@ export default function App() {
                   <div className="grid gap-4 py-4">
                     {!isGitHubConnected ? (
                       <div className="flex flex-col items-center gap-4 py-4">
-                        <p className="text-sm text-gray-600 text-center">
+                        <p className="text-sm text-indigo-900/60 text-center">
                           Sign in with GitHub to sync your scripts to a private repository.
                         </p>
-                        <Button onClick={handleConnectGitHub} className="bg-[#24292e] hover:bg-[#2c3238] text-white gap-2">
+                        <Button onClick={handleConnectGitHub} className="bg-indigo-950 hover:bg-indigo-900 text-white gap-2">
                           <CloudUpload className="w-4 h-4" />
                           Connect GitHub
                         </Button>
@@ -505,12 +510,12 @@ export default function App() {
                 initial={{ width: 0, opacity: 0 }}
                 animate={{ width: 240, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
-                className="bg-[#ebebeb] border-r border-[#d1d1d1] overflow-hidden flex flex-col shrink-0"
+                className="glass-panel border-r overflow-hidden flex flex-col shrink-0"
               >
-                <div className="flex flex-col h-1/2 border-b border-[#d1d1d1]">
-                  <div className="p-4 flex items-center justify-between text-[11px] font-bold text-[#666666] uppercase tracking-widest border-b border-[#d1d1d1]">
+                <div className="flex flex-col h-1/2 border-b border-indigo-100/20">
+                  <div className="p-4 flex items-center justify-between text-[11px] font-bold text-indigo-900/40 uppercase tracking-widest border-b border-indigo-100/20">
                     <span>Projects</span>
-                    <button onClick={() => setIsNewProjectOpen(true)} className="hover:text-[#3b82f6]">
+                    <button onClick={() => setIsNewProjectOpen(true)} className="hover:text-indigo-600">
                       <Plus className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -519,8 +524,8 @@ export default function App() {
                       {projects.map((project) => (
                         <div
                           key={project}
-                          className={`p-2 rounded-none cursor-pointer transition-colors text-sm truncate ${
-                            activeProject === project ? 'bg-white border border-[#d1d1d1] text-[#1a1a1a]' : 'hover:bg-white/50 text-[#666666]'
+                          className={`p-2 rounded-lg cursor-pointer transition-all text-sm truncate ${
+                            activeProject === project ? 'glass-card text-indigo-900 font-medium' : 'hover:bg-white/20 text-indigo-900/60'
                           }`}
                           onClick={() => setActiveProject(project)}
                         >
@@ -532,9 +537,9 @@ export default function App() {
                 </div>
 
                 <div className="flex flex-col h-1/2">
-                  <div className="p-4 flex items-center justify-between text-[11px] font-bold text-[#666666] uppercase tracking-widest border-b border-[#d1d1d1]">
+                  <div className="p-4 flex items-center justify-between text-[11px] font-bold text-indigo-900/40 uppercase tracking-widest border-b border-indigo-100/20">
                     <span>Files</span>
-                    <button onClick={() => setIsNewScriptOpen(true)} className="hover:text-[#3b82f6]">
+                    <button onClick={() => setIsNewScriptOpen(true)} className="hover:text-indigo-600">
                       <Plus className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -543,8 +548,8 @@ export default function App() {
                       {files.map((file) => (
                         <div
                           key={file}
-                          className={`group flex items-center justify-between p-2 rounded-none cursor-pointer transition-colors text-sm ${
-                            activeFile === file ? 'bg-white border border-[#d1d1d1] text-[#1a1a1a]' : 'hover:bg-white/50 text-[#666666]'
+                          className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all text-sm ${
+                            activeFile === file ? 'glass-card text-indigo-900 font-medium' : 'hover:bg-white/20 text-indigo-900/60'
                           }`}
                           onClick={() => setActiveFile(file)}
                         >
@@ -573,12 +578,12 @@ export default function App() {
           </AnimatePresence>
 
           {/* Editor Canvas */}
-          <main className="flex-1 flex justify-center overflow-y-auto p-10 bg-[#f2f2f2]">
-            <div className="w-full max-w-[560px] min-h-full bg-white shadow-[0_4px_12px_rgba(0,0,0,0.05)] border border-[#d1d1d1] p-16 md:p-20 relative">
+          <main className="flex-1 flex justify-center overflow-y-auto p-10 bg-transparent">
+            <div className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-16 md:p-20 relative mb-10">
               {activeFile ? (
                 <textarea
                   ref={editorRef}
-                  className="w-full h-full min-h-[800px] resize-none focus:outline-none font-mono text-[14px] leading-[1.4] text-black placeholder:text-gray-300"
+                  className="w-full resize-none focus:outline-none font-mono text-[14px] leading-[1.8] text-indigo-950 placeholder:text-indigo-200 bg-transparent overflow-hidden"
                   placeholder="Start writing in Fountain format..."
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
@@ -593,7 +598,7 @@ export default function App() {
                 <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
                   <FileText className="w-12 h-12 opacity-20" />
                   <p className="text-sm">Select or create a script to begin</p>
-                  <Button variant="outline" onClick={() => setIsNewScriptOpen(true)}>Create New Script</Button>
+                  <Button variant="glass" onClick={() => setIsNewScriptOpen(true)}>Create New Script</Button>
                 </div>
               )}
             </div>
@@ -607,15 +612,15 @@ export default function App() {
               initial={{ height: 0 }}
               animate={{ height: 160 }}
               exit={{ height: 0 }}
-              className="bg-[#1e1e1e] text-[#d4d4d4] font-mono border-t border-[#333] overflow-hidden flex flex-col shrink-0"
+              className="glass-panel border-t overflow-hidden flex flex-col shrink-0"
             >
-              <div className="flex items-center justify-between px-4 py-2 border-b border-[#333]">
-                <div className="flex items-center gap-2 text-[10px] text-[#666666] uppercase tracking-[1px]">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-indigo-100/20">
+                <div className="flex items-center gap-2 text-[10px] text-indigo-900/40 uppercase tracking-[1px]">
                   <span>Terminal</span>
-                  <Separator orientation="vertical" className="h-2 bg-[#333]" />
+                  <Separator orientation="vertical" className="h-2 bg-indigo-100/20" />
                   <span>git-log --oneline -n 5</span>
                 </div>
-                <button className="text-[#666666] hover:text-white" onClick={() => setIsTerminalOpen(false)}>
+                <button className="text-indigo-900/40 hover:text-indigo-900" onClick={() => setIsTerminalOpen(false)}>
                   <ChevronLeft className="w-4 h-4 rotate-[-90deg]" />
                 </button>
               </div>
@@ -623,12 +628,12 @@ export default function App() {
                 <div className="space-y-1 text-[12px]">
                   {gitLog.length > 0 ? gitLog.map((log) => (
                     <div key={log.hash} className="flex gap-4">
-                      <span className="text-[#22c55e]">$</span>
-                      <span className="text-gray-500">{log.hash.substring(0, 7)}</span>
-                      <span className="text-[#d4d4d4]">{log.message}</span>
+                      <span className="text-indigo-500 font-bold">$</span>
+                      <span className="text-indigo-900/30">{log.hash.substring(0, 7)}</span>
+                      <span className="text-indigo-900/80">{log.message}</span>
                     </div>
                   )) : (
-                    <div className="text-gray-600">No commit history yet.</div>
+                    <div className="text-indigo-900/30 italic">No commit history yet.</div>
                   )}
                 </div>
               </ScrollArea>
@@ -637,9 +642,9 @@ export default function App() {
         </AnimatePresence>
 
         {/* Status Bar */}
-        <footer className="h-[28px] bg-[#ebebeb] border-t border-[#d1d1d1] flex items-center justify-between px-4 text-[11px] text-[#666666] shrink-0">
+        <footer className="h-[28px] glass-panel border-t flex items-center justify-between px-4 text-[11px] text-indigo-900/60 shrink-0">
           <div className="flex items-center gap-5">
-            <div className="flex items-center gap-1.5 text-[#1a1a1a]">
+            <div className="flex items-center gap-1.5 text-indigo-900 font-medium">
               <GitBranch className="w-3.5 h-3.5" />
               <span>{gitStatus?.branch || 'main'}</span>
             </div>
