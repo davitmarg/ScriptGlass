@@ -1,0 +1,67 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'Courier New', Courier, monospace;
+    
+    --color-background: #f2f2f2;
+    --color-foreground: #1a1a1a;
+    
+    --color-primary: #3b82f6;
+    --color-primary-foreground: #ffffff;
+    
+    --color-secondary: #ebebeb;
+    --color-secondary-foreground: #666666;
+    
+    --color-muted: #ebebeb;
+    --color-muted-foreground: #666666;
+    
+    --color-accent: #3b82f6;
+    --color-accent-foreground: #ffffff;
+    
+    --color-border: #d1d1d1;
+    --color-input: #d1d1d1;
+    --color-ring: #3b82f6;
+}
+
+:root {
+    --background: #f2f2f2;
+    --foreground: #1a1a1a;
+    --card: #ffffff;
+    --card-foreground: #1a1a1a;
+    --popover: #ffffff;
+    --popover-foreground: #1a1a1a;
+    --primary: #3b82f6;
+    --primary-foreground: #ffffff;
+    --secondary: #ebebeb;
+    --secondary-foreground: #666666;
+    --muted: #ebebeb;
+    --muted-foreground: #666666;
+    --accent: #ebebeb;
+    --accent-foreground: #1a1a1a;
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: #d1d1d1;
+    --input: #d1d1d1;
+    --ring: #3b82f6;
+    --radius: 0px;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+  }
+}
+
+/* Fountain specific classes for potential preview usage */
+.fountain-slugline { @apply font-bold uppercase mb-4; }
+.fountain-action { @apply mb-4; }
+.fountain-character { @apply text-center w-3/5 mx-auto mb-1 uppercase; }
+.fountain-parenthetical { @apply text-center w-1/2 mx-auto mb-1 text-sm italic; }
+.fountain-dialogue { @apply text-center w-3/4 mx-auto mb-4; }
