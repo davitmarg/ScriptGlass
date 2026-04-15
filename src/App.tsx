@@ -13,9 +13,12 @@ import {
   Clock,
   Settings as SettingsIcon,
   Globe,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { jsPDF } from 'jspdf';
+import { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -55,7 +58,6 @@ export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [gitLog, setGitLog] = useState<GitLogEntry[]>([]);
-  const [wordCount, setWordCount] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [githubToken, setGithubToken] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -73,6 +75,113 @@ export default function App() {
   const [historyIndex, setHistoryIndex] = useState(-1);
 
   const blockRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
+
+  const { wordCount, pageCount } = useMemo(() => {
+    let words = 0;
+    let lines = 0;
+    let pages = 1;
+    const maxLinesPerPage = 54;
+    
+    // Create a dummy jsPDF instance for calculations
+    // We use a try-catch because jsPDF might not be available during SSR if that ever happens
+    try {
+      const doc = new jsPDF({ unit: 'in', format: 'letter' });
+      doc.setFont('courier', 'normal');
+      doc.setFontSize(12);
+
+      blocks.forEach((block, index) => {
+        const text = block.content.trim();
+        if (!text) return;
+        
+        words += text.split(/\s+/).filter(Boolean).length;
+        
+        let width = 6.0; // Default for Scene/Action
+        if (block.type === 'character') width = 3.8;
+        else if (block.type === 'parenthetical') width = 2.0;
+        else if (block.type === 'dialogue') width = 3.5;
+        else if (block.type === 'transition') width = 2.0;
+        
+        const splitText = doc.splitTextToSize(block.content, width);
+        const blockLines = splitText.length;
+        
+        // Add spacing before blocks
+        let spacing = 1;
+        if (index === 0) spacing = 0;
+        else if (block.type === 'dialogue' || block.type === 'parenthetical') spacing = 0;
+        else if (blocks[index-1].type === 'character' && (block.type === 'parenthetical' || block.type === 'dialogue')) spacing = 0;
+        else if (blocks[index-1].type === 'parenthetical' && block.type === 'dialogue') spacing = 0;
+        
+        if (lines + spacing + blockLines > maxLinesPerPage) {
+          pages++;
+          lines = blockLines;
+        } else {
+          lines += spacing + blockLines;
+        }
+      });
+    } catch (e) {
+      console.error('PDF calculation error', e);
+    }
+    
+    return { wordCount: words, pageCount: blocks.length === 0 ? 0 : pages };
+  }, [blocks]);
+
+  const exportToPDF = () => {
+    try {
+      const doc = new jsPDF({ unit: 'in', format: 'letter' });
+      doc.setFont('courier', 'normal');
+      doc.setFontSize(12);
+      
+      let y = 1.0; // Start at top margin
+      const bottomMargin = 10.0;
+      const lineHeight = 1/6;
+
+      blocks.forEach((block, index) => {
+        if (!block.content.trim()) return;
+
+        let x = 1.5;
+        let width = 6.0;
+        let align = 'left';
+        
+        if (block.type === 'character') { x = 3.7; width = 3.8; }
+        else if (block.type === 'parenthetical') { x = 3.1; width = 2.0; }
+        else if (block.type === 'dialogue') { x = 2.5; width = 3.5; }
+        else if (block.type === 'transition') { x = 5.5; width = 2.0; align = 'right'; }
+        
+        const splitText = doc.splitTextToSize(block.content, width);
+        const blockHeight = splitText.length * lineHeight;
+        
+        // Spacing
+        let spacing = lineHeight;
+        if (index === 0) spacing = 0;
+        else if (block.type === 'dialogue' || block.type === 'parenthetical') spacing = 0;
+        else if (blocks[index-1].type === 'character' && (block.type === 'parenthetical' || block.type === 'dialogue')) spacing = 0;
+        else if (blocks[index-1].type === 'parenthetical' && block.type === 'dialogue') spacing = 0;
+
+        if (y + spacing + blockHeight > bottomMargin) {
+          doc.addPage();
+          y = 1.0;
+          spacing = 0;
+        }
+        
+        y += spacing;
+        
+        splitText.forEach((line: string) => {
+          if (align === 'right') {
+            doc.text(line, 7.5, y, { align: 'right' });
+          } else {
+            doc.text(line, x, y);
+          }
+          y += lineHeight;
+        });
+      });
+      
+      doc.save(`${activeFile?.replace('.fountain', '') || 'script'}.pdf`);
+      toast.success('Script exported to PDF');
+    } catch (error) {
+      console.error('Export failed', error);
+      toast.error('Failed to export PDF');
+    }
+  };
 
   const saveToHistory = (newBlocks: ScriptBlock[]) => {
     const newHistory = history.slice(0, historyIndex + 1);
@@ -527,9 +636,19 @@ export default function App() {
             <div className="w-3 h-3 rounded-full bg-amber-400/80" />
             <div className="w-3 h-3 rounded-full bg-emerald-400/80" />
           </div>
-          <div className="text-[12px] font-semibold text-indigo-900/60 uppercase tracking-wider">
+          <div className="text-[12px] font-semibold text-indigo-900/60 uppercase tracking-wider flex-1">
             ScriptGlass — {activeFile || 'Untitled'}
           </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-7 text-[10px] uppercase tracking-widest font-bold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50/50 gap-2"
+            onClick={exportToPDF}
+            disabled={!activeFile || blocks.length === 0}
+          >
+            <Download className="w-3.5 h-3.5" />
+            Export PDF
+          </Button>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
@@ -959,6 +1078,10 @@ export default function App() {
                       <div className="text-[11px] text-indigo-900/40 font-medium mb-3">STATS</div>
                       <div className="px-3 py-2 rounded-lg bg-indigo-50/30 space-y-1">
                         <div className="flex justify-between text-xs">
+                          <span className="text-indigo-900/60">Pages</span>
+                          <span className="font-mono text-indigo-950">{pageCount}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
                           <span className="text-indigo-900/60">Words</span>
                           <span className="font-mono text-indigo-950">{wordCount}</span>
                         </div>
@@ -1027,7 +1150,7 @@ export default function App() {
               <GitBranch className="w-3.5 h-3.5" />
               <span>{gitStatus?.branch || 'main'}</span>
             </div>
-            <span>Page 1 of 1</span>
+            <span>Page {pageCount} of {pageCount}</span>
             <span>{wordCount} words</span>
           </div>
           
