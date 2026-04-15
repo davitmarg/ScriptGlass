@@ -127,7 +127,7 @@ export default function App() {
   }, [activeProject, activeFile]);
 
   useEffect(() => {
-    const words = content.trim() ? content.trim().split(/\s+/).length : 0;
+    const words = (content || '').trim() ? (content || '').trim().split(/\s+/).length : 0;
     setWordCount(words);
   }, [content]);
 
@@ -161,7 +161,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/projects/${project}/files/${filename}`);
       const data = await res.json();
-      setContent(data.content);
+      setContent(data.content || '');
     } catch (error) {
       toast.error('Failed to fetch file content');
     }

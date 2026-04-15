@@ -144,47 +144,72 @@ class GitManager {
 
   async push(token: string, repoName: string) {
     try {
+      // Slugify repo name for GitHub
+      const slugifiedRepoName = repoName.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
+
       // 1. Get user info to determine username
-      const userRes = await axios.get("https://api.github.com/user", {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          "User-Agent": "ScriptGlass-App"
-        },
-      });
-      const username = userRes.data.login;
+      let username = "";
+      try {
+        const userRes = await axios.get("https://api.github.com/user", {
+          headers: { 
+            Authorization: `token ${token}`,
+            "User-Agent": "ScriptGlass-App",
+            Accept: "application/vnd.github+json"
+          },
+        });
+        username = userRes.data.login;
+      } catch (error: any) {
+        console.error("Failed to get user info:", error.response?.data || error.message);
+        if (error.response?.data?.message === "Resource not accessible by integration") {
+          throw new Error("GitHub App permissions issue: Please ensure your GitHub App has 'User' permissions enabled (Read-only is enough for username).");
+        }
+        throw error;
+      }
 
       // 2. Ensure repository exists on GitHub
       try {
-        await axios.get(`https://api.github.com/repos/${username}/${repoName}`, {
+        await axios.get(`https://api.github.com/repos/${username}/${slugifiedRepoName}`, {
           headers: { 
-            Authorization: `Bearer ${token}`,
-            "User-Agent": "ScriptGlass-App"
+            Authorization: `token ${token}`,
+            "User-Agent": "ScriptGlass-App",
+            Accept: "application/vnd.github+json"
           },
         });
       } catch (error: any) {
         if (error.response?.status === 404) {
           // Create repo if it doesn't exist
-          await axios.post(
-            "https://api.github.com/user/repos",
-            {
-              name: repoName,
-              description: `ScriptGlass Project: ${repoName}`,
-              private: true,
-            },
-            {
-              headers: { 
-                Authorization: `Bearer ${token}`,
-                "User-Agent": "ScriptGlass-App"
+          try {
+            await axios.post(
+              "https://api.github.com/user/repos",
+              {
+                name: slugifiedRepoName,
+                description: `ScriptGlass Project: ${repoName}`,
+                private: true,
               },
+              {
+                headers: { 
+                  Authorization: `token ${token}`,
+                  "User-Agent": "ScriptGlass-App",
+                  Accept: "application/vnd.github+json"
+                },
+              }
+            );
+          } catch (createError: any) {
+            console.error("Failed to create repository:", createError.response?.data || createError.message);
+            if (createError.response?.data?.message === "Resource not accessible by integration") {
+              throw new Error("GitHub App permissions issue: Please ensure your GitHub App has 'Contents' and 'Administration' write permissions.");
             }
-          );
+            throw createError;
+          }
         } else {
+          console.error("Failed to check repository existence:", error.response?.data || error.message);
           throw error;
         }
       }
 
       // 3. Configure remote and push
-      const remoteUrl = `https://${token}@github.com/${username}/${repoName}.git`;
+      // Using oauth2 as username is the standard for OAuth tokens
+      const remoteUrl = `https://oauth2:${token}@github.com/${username}/${slugifiedRepoName}.git`;
       
       const remotes = await this.git.getRemotes();
       if (remotes.find(r => r.name === "origin")) {
@@ -201,8 +226,11 @@ class GitManager {
       }
 
       await this.git.push("origin", branch, ["--force"]);
-      return { success: true, repoUrl: `https://github.com/${username}/${repoName}` };
-    } catch (error) {
+      return { success: true, repoUrl: `https://github.com/${username}/${slugifiedRepoName}` };
+    } catch (error: any) {
+      if (error.response) {
+        console.error("GitHub API Error Response:", error.response.data);
+      }
       console.error("Git Push Error:", error);
       throw error;
     }
@@ -357,8 +385,14 @@ async function startServer() {
       await git.commit(commitMessage || `Sync ${new Date().toISOString()}`);
       const result = await git.push(token, req.params.project);
       res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: String(error) });
+    } catch (error: any) {
+      console.error("Sync Error Detailed:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        stack: error.stack
+      });
+      res.status(500).json({ error: error.response?.data?.message || String(error) });
     }
   });
 
