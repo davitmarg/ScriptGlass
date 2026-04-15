@@ -73,9 +73,24 @@
   @apply bg-white/30 backdrop-blur-lg border border-white/20 shadow-sm;
 }
 
-/* Fountain specific classes for potential preview usage */
-.fountain-slugline { @apply font-bold uppercase mb-4; }
-.fountain-action { @apply mb-4; }
-.fountain-character { @apply text-center w-3/5 mx-auto mb-1 uppercase; }
-.fountain-parenthetical { @apply text-center w-1/2 mx-auto mb-1 text-sm italic; }
-.fountain-dialogue { @apply text-center w-3/4 mx-auto mb-4; }
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Screenplay Formatting Classes */
+.script-scene { @apply uppercase font-bold text-left mb-0; }
+.script-action { @apply text-left mb-0; }
+.script-character { @apply uppercase font-bold text-center w-[60%] mx-auto mb-0; }
+.script-parenthetical { @apply italic text-center w-[40%] mx-auto mb-0 text-sm; }
+.script-dialogue { @apply text-center w-[75%] mx-auto mb-0; }
+.script-transition { @apply uppercase text-right mb-0; }
+.script-shot { @apply uppercase font-bold text-left mb-0; }
+.script-general { @apply text-left mb-0; }
+
+.script-editor-textarea {
+  @apply w-full bg-transparent border-none outline-none resize-none p-0 m-0 font-mono text-[14px] leading-none text-indigo-950 placeholder:text-indigo-200/30;
+}
