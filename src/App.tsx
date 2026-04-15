@@ -339,7 +339,7 @@ export default function App() {
             <div className="w-3 h-3 rounded-full bg-emerald-400/80" />
           </div>
           <div className="text-[12px] font-semibold text-indigo-900/60 uppercase tracking-wider">
-            ScriptFlow — {activeFile || 'Untitled'}
+            ScriptGlass — {activeFile || 'Untitled'}
           </div>
         </div>
 
