@@ -14,7 +14,8 @@ import {
   Settings as SettingsIcon,
   Globe,
   Link as LinkIcon,
-  Download
+  Download,
+  Type
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
@@ -55,7 +56,7 @@ export default function App() {
   const [blocks, setBlocks] = useState<ScriptBlock[]>([]);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<BlockType>('action');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [gitLog, setGitLog] = useState<GitLogEntry[]>([]);
@@ -73,7 +74,7 @@ export default function App() {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [history, setHistory] = useState<{ blocks: ScriptBlock[]; selection: { blockId: string | null; offset: number } }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
@@ -807,7 +808,7 @@ export default function App() {
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen w-full bg-transparent text-indigo-950 font-sans selection:bg-indigo-100 overflow-hidden">
+      <div className="flex flex-col h-screen w-full bg-transparent text-indigo-950 font-sans selection:bg-yellow-200/60 overflow-hidden">
         <Toaster position="top-center" />
         
         {/* Title Bar */}
@@ -1223,7 +1224,7 @@ export default function App() {
             </motion.div>
           </main>
 
-          {/* Right Sidebar */}
+          {/* Right Sidebar Panel */}
           <AnimatePresence>
             {isRightSidebarOpen && (
               <motion.aside
@@ -1234,9 +1235,6 @@ export default function App() {
               >
                 <div className="p-4 border-b border-indigo-100/20 flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-900/40">Formatting</span>
-                  <button onClick={() => setIsRightSidebarOpen(false)} className="text-indigo-900/40 hover:text-indigo-900">
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
                 </div>
                 
                 <ScrollArea className="flex-1">
@@ -1299,14 +1297,18 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          {!isRightSidebarOpen && (
-            <button 
-              onClick={() => setIsRightSidebarOpen(true)}
-              className="fixed right-4 top-1/2 -translate-y-1/2 w-8 h-8 glass-panel rounded-full flex items-center justify-center text-indigo-900/40 hover:text-indigo-900 z-50"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-          )}
+          {/* Right Icons Bar */}
+          <aside className="w-12 glass-panel border-l flex flex-col items-center py-5 gap-6 shrink-0">
+            <Tooltip>
+              <TooltipTrigger 
+                className={`transition-colors hover:text-indigo-600 ${isRightSidebarOpen ? 'text-indigo-600' : 'text-indigo-400/50'}`}
+                onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+              >
+                <Type className="w-5 h-5" />
+              </TooltipTrigger>
+              <TooltipContent side="left">Formatting</TooltipContent>
+            </Tooltip>
+          </aside>
         </div>
 
         {/* Terminal Pane */}
