@@ -15,7 +15,9 @@ import {
   Globe,
   Link as LinkIcon,
   Download,
-  Type
+  Type,
+  List,
+  Layout
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
@@ -68,6 +70,15 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [githubToken, setGithubToken] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [titlePage, setTitlePage] = useState({
+    title: '',
+    credit: 'written by',
+    author: '',
+    source: '',
+    notes: '',
+    contact: ''
+  });
+
   const [isGitHubConnected, setIsGitHubConnected] = useState(false);
   const [syncCommitMessage, setSyncCommitMessage] = useState('');
   const [settings, setSettings] = useState({ baseProjectsDir: '' });
@@ -80,11 +91,17 @@ export default function App() {
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [activeRightTab, setActiveRightTab] = useState<'formatting' | 'outline' | 'title'>('formatting');
   const [history, setHistory] = useState<{ blocks: ScriptBlock[]; selection: { blockId: string | null; offset: number } }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [terminalOutput, setTerminalOutput] = useState<TerminalOutput[]>([]);
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalMode, setTerminalMode] = useState<'git' | 'interactive'>('git');
+
+  const [autocompleteIndex, setAutocompleteIndex] = useState(0);
+  const [autocompleteList, setAutocompleteList] = useState<string[]>([]);
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [activeLineRect, setActiveLineRect] = useState<DOMRect | null>(null);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const terminalScrollRef = useRef<HTMLDivElement>(null);
@@ -123,6 +140,27 @@ export default function App() {
       setTerminalOutput(prev => [...prev, { type: 'error', content: String(err) }]);
     }
   };
+
+  const suggestions = useMemo(() => {
+    const characters = new Set<string>();
+    const locations = new Set<string>();
+
+    blocks.forEach(block => {
+      if (block.type === 'character') {
+        const char = block.content.trim().toUpperCase();
+        if (char) characters.add(char);
+      }
+      if (block.type === 'scene') {
+        const loc = block.content.trim().toUpperCase();
+        if (loc) locations.add(loc);
+      }
+    });
+
+    return {
+      characters: Array.from(characters).sort(),
+      locations: Array.from(locations).sort()
+    };
+  }, [blocks]);
 
   const { wordCount, pageCount } = useMemo(() => {
     let words = 0;
@@ -179,6 +217,45 @@ export default function App() {
       doc.setFont('courier', 'normal');
       doc.setFontSize(12);
       
+      // Title Page logic
+      if (titlePage.title || titlePage.author) {
+        // Vertical center approximately
+        let titleY = 4.0;
+        
+        if (titlePage.title) {
+          doc.setFont('courier', 'bold');
+          const titleLines = doc.splitTextToSize(titlePage.title.toUpperCase(), 5.0);
+          titleLines.forEach((line: string) => {
+            doc.text(line, 4.25, titleY, { align: 'center' });
+            titleY += 0.25;
+          });
+          titleY += 0.5;
+        }
+        
+        doc.setFont('courier', 'normal');
+        if (titlePage.credit) {
+          doc.text(titlePage.credit, 4.25, titleY, { align: 'center' });
+          titleY += 0.25;
+        }
+        
+        if (titlePage.author) {
+          doc.text(titlePage.author, 4.25, titleY, { align: 'center' });
+        }
+        
+        if (titlePage.source) {
+          doc.text(titlePage.source, 4.25, titleY + 0.5, { align: 'center' });
+        }
+        
+        if (titlePage.contact) {
+          doc.setFontSize(10);
+          const contactLines = doc.splitTextToSize(titlePage.contact, 3.0);
+          doc.text(contactLines, 1.0, 10.0);
+          doc.setFontSize(12);
+        }
+        
+        doc.addPage();
+      }
+
       let y = 1.0; // Start at top margin
       const bottomMargin = 10.0;
       const lineHeight = 1/6;
@@ -244,6 +321,7 @@ export default function App() {
 
     const lines = Array.from(editorRef.current.children) as HTMLElement[];
     const newBlocks: ScriptBlock[] = [];
+    const seenIds = new Set<string>();
 
     lines.forEach((line, i) => {
       const text = line.textContent || '';
@@ -273,7 +351,11 @@ export default function App() {
       const manualType = line.getAttribute('data-type') as BlockType;
       if (manualType) type = manualType;
 
-      const id = line.id || Math.random().toString(36).substr(2, 9);
+      let id = line.id;
+      if (!id || seenIds.has(id)) {
+        id = Math.random().toString(36).substr(2, 9);
+      }
+      seenIds.add(id);
       line.id = id;
       line.setAttribute('data-type', type);
       line.className = `script-line script-${type} ${type === 'character' ? 'font-bold' : ''}`;
@@ -604,6 +686,29 @@ export default function App() {
     }
   }, [activeProject, activeFile]);
 
+  const handleAutocompleteSelect = (value: string) => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      let node = sel.anchorNode;
+      while (node && (node.nodeType !== 3 && !(node as HTMLElement).classList.contains('script-line'))) {
+        node = node.parentElement;
+        if (node === editorRef.current || !node) break;
+      }
+      if (node) {
+        (node as HTMLElement).textContent = value;
+        setShowAutocomplete(false);
+        updateFormatting();
+        // Move cursor to end
+        const range = document.createRange();
+        const textNode = (node as HTMLElement).firstChild || node;
+        range.selectNodeContents(textNode);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+  };
+
   const updateActiveTypeFromSelection = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return;
@@ -617,13 +722,31 @@ export default function App() {
       if (current.nodeType === 1 && (current as HTMLElement).classList.contains('script-line')) {
         const id = (current as HTMLElement).id;
         const type = (current as HTMLElement).getAttribute('data-type') as BlockType;
+        const text = (current as HTMLElement).textContent || '';
+
         if (id) setActiveBlockId(id);
-        if (type) setActiveType(type);
+        if (type) setActiveType(type || 'general');
+        setActiveLineRect((current as HTMLElement).getBoundingClientRect());
+
+        if (type === 'character' || type === 'scene') {
+          const list = type === 'character' ? suggestions.characters : suggestions.locations;
+          const filtered = list.filter(s => s.startsWith(text.toUpperCase()) && s !== text.toUpperCase());
+          if (filtered.length > 0 && text.length > 0) {
+            setAutocompleteList(filtered);
+            setShowAutocomplete(true);
+            setAutocompleteIndex(0);
+          } else {
+            setShowAutocomplete(false);
+          }
+        } else {
+          setShowAutocomplete(false);
+        }
         return;
       }
       current = current.parentElement;
     }
-  }, [activeBlockId, activeType]);
+    setShowAutocomplete(false);
+  }, [suggestions, activeBlockId, activeType]);
 
   useEffect(() => {
     document.addEventListener('selectionchange', updateActiveTypeFromSelection);
@@ -1267,15 +1390,37 @@ export default function App() {
                       }
                     }
 
+                    if (showAutocomplete) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setAutocompleteIndex(prev => (prev + 1) % autocompleteList.length);
+                        return;
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setAutocompleteIndex(prev => (prev - 1 + autocompleteList.length) % autocompleteList.length);
+                        return;
+                      }
+                      if (e.key === 'Enter' || e.key === 'Tab') {
+                        e.preventDefault();
+                        handleAutocompleteSelect(autocompleteList[autocompleteIndex]);
+                        return;
+                      }
+                      if (e.key === 'Escape') {
+                        setShowAutocomplete(false);
+                        return;
+                      }
+                    }
+
                     if (e.key === 'Tab') {
                       e.preventDefault();
                       const line = getCurrentLine();
                       if (line) {
                         const type = line.getAttribute('data-type') as BlockType || 'action';
-                        if (type === 'action') setLineType(line, 'character');
-                        else if (type === 'character') setLineType(line, 'parenthetical');
-                        else if (type === 'dialogue') setLineType(line, 'parenthetical');
-                        else setLineType(line, 'action');
+                        const cycle: BlockType[] = ['scene', 'action', 'character', 'parenthetical', 'dialogue', 'transition', 'shot', 'general'];
+                        const idx = cycle.indexOf(type);
+                        const nextTabType = cycle[(idx + 1) % cycle.length];
+                        setLineType(line, nextTabType);
                       }
                     }
                   }}
@@ -1290,6 +1435,37 @@ export default function App() {
             </motion.div>
           </main>
 
+          {/* Autocomplete Overlay */}
+          <AnimatePresence>
+            {showAutocomplete && activeLineRect && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                style={{
+                  position: 'fixed',
+                  top: activeLineRect.bottom + 5,
+                  left: activeLineRect.left,
+                  zIndex: 9999,
+                }}
+                className="w-64 glass-panel shadow-2xl rounded-xl border border-indigo-100/50 py-1 overflow-hidden"
+              >
+                <div className="text-[9px] text-indigo-900/40 px-3 py-1 uppercase tracking-wider font-bold">Suggestions</div>
+                {autocompleteList.slice(0, 10).map((item, idx) => (
+                  <button
+                    key={item}
+                    className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                      idx === autocompleteIndex ? 'bg-indigo-600 text-white' : 'hover:bg-indigo-50 text-indigo-900'
+                    }`}
+                    onClick={() => handleAutocompleteSelect(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Right Sidebar Panel */}
           <AnimatePresence>
             {isRightSidebarOpen && (
@@ -1300,64 +1476,148 @@ export default function App() {
                 className="glass-panel border-l flex flex-col shrink-0 overflow-hidden"
               >
                 <div className="p-4 border-b border-indigo-100/20 flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-900/40">Formatting</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-900/40">
+                    {activeRightTab === 'formatting' ? 'Formatting' : 
+                     activeRightTab === 'outline' ? 'Scene Navigator' : 'Title Page'}
+                  </span>
                 </div>
                 
                 <ScrollArea className="flex-1">
-                  <div className="p-4 space-y-6">
-                    <div className="space-y-2">
-                      <div className="text-[11px] text-indigo-900/40 font-medium mb-3">ELEMENTS</div>
-                      {[
-                        { id: 'scene', label: 'Scene Heading', key: '1' },
-                        { id: 'action', label: 'Action', key: '2' },
-                        { id: 'character', label: 'Character', key: '3' },
-                        { id: 'parenthetical', label: 'Parenthetical', key: '4' },
-                        { id: 'dialogue', label: 'Dialogue', key: '5' },
-                        { id: 'transition', label: 'Transition', key: '6' },
-                        { id: 'shot', label: 'Shot', key: '7' },
-                        { id: 'general', label: 'General', key: '0' },
-                      ].map((item) => (
-                        <button
-                          key={item.id}
-                          onMouseDown={(e) => {
-                            e.preventDefault(); // Prevent focus loss
-                            applyFormat(item.id as BlockType);
-                            setActiveType(item.id as BlockType);
-                          }}
-                          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all text-left text-sm group ${
-                            activeType === item.id 
-                              ? 'bg-indigo-100 text-indigo-900 font-medium' 
-                              : 'hover:bg-indigo-50/50 text-indigo-950'
-                          }`}
-                        >
-                          <span>{item.label}</span>
-                          <span className="text-[10px] text-indigo-900/30 group-hover:text-indigo-900/60 font-mono">
-                            {navigator.platform.includes('Mac') ? '⌘' : 'Alt'}+{item.key}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
+                  {activeRightTab === 'formatting' ? (
+                    <div className="p-4 space-y-6">
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-indigo-900/40 font-medium mb-3">ELEMENTS</div>
+                        {[
+                          { id: 'scene', label: 'Scene Heading', key: '1' },
+                          { id: 'action', label: 'Action', key: '2' },
+                          { id: 'character', label: 'Character', key: '3' },
+                          { id: 'parenthetical', label: 'Parenthetical', key: '4' },
+                          { id: 'dialogue', label: 'Dialogue', key: '5' },
+                          { id: 'transition', label: 'Transition', key: '6' },
+                          { id: 'shot', label: 'Shot', key: '7' },
+                          { id: 'general', label: 'General', key: '0' },
+                        ].map((item) => (
+                          <button
+                            key={item.id}
+                            onMouseDown={(e) => {
+                              e.preventDefault(); // Prevent focus loss
+                              applyFormat(item.id as BlockType);
+                              setActiveType(item.id as BlockType);
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all text-left text-sm group ${
+                              activeType === item.id 
+                                ? 'bg-indigo-100 text-indigo-900 font-medium' 
+                                : 'hover:bg-indigo-50/50 text-indigo-950'
+                            }`}
+                          >
+                            <span>{item.label}</span>
+                            <span className="text-[10px] text-indigo-900/30 group-hover:text-indigo-900/60 font-mono">
+                              {navigator.platform.includes('Mac') ? '⌘' : 'Alt'}+{item.key}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
 
-                    <Separator className="bg-indigo-100/20" />
+                      <Separator className="bg-indigo-100/20" />
 
-                    <div className="space-y-2">
-                      <div className="text-[11px] text-indigo-900/40 font-medium mb-3">STATS</div>
-                      <div className="px-3 py-2 rounded-lg bg-indigo-50/30 space-y-1">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-indigo-900/60">Pages</span>
-                          <span className="font-mono text-indigo-950">{pageCount}</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-indigo-900/60">Words</span>
-                          <span className="font-mono text-indigo-950">{wordCount}</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-indigo-900/60">Zoom</span>
-                          <span className="font-mono text-indigo-950">{Math.round(zoom * 100)}%</span>
+                      <div className="space-y-2">
+                        <div className="text-[11px] text-indigo-900/40 font-medium mb-3">STATS</div>
+                        <div className="px-3 py-2 rounded-lg bg-indigo-50/30 space-y-1">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-indigo-900/60">Pages</span>
+                            <span className="font-mono text-indigo-950">{pageCount}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-indigo-900/60">Words</span>
+                            <span className="font-mono text-indigo-950">{wordCount}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-indigo-900/60">Zoom</span>
+                            <span className="font-mono text-indigo-950">{Math.round(zoom * 100)}%</span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  ) : activeRightTab === 'outline' ? (
+                    <div className="p-4">
+                      <div className="text-[11px] text-indigo-900/40 font-medium mb-3">OUTLINE</div>
+                      <div className="space-y-1">
+                        {blocks.filter(b => b.type === 'scene').map((block, idx) => (
+                          <button
+                            key={block.id}
+                            onClick={() => {
+                              const el = document.getElementById(`block-${block.id}`);
+                              el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              setActiveBlockId(block.id);
+                            }}
+                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-indigo-50/50 transition-all group"
+                          >
+                            <div className="text-[10px] text-indigo-900/40 font-mono mb-0.5">SCENE {idx + 1}</div>
+                            <div className="text-xs font-bold text-indigo-900 truncate uppercase">
+                              {block.content || 'Untitled Scene'}
+                            </div>
+                          </button>
+                        ))}
+                        {blocks.filter(b => b.type === 'scene').length === 0 && (
+                          <div className="text-xs text-indigo-900/30 italic p-3">
+                            No scenes headings found.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 space-y-4">
+                      <div className="text-[11px] text-indigo-900/40 font-medium mb-1">TITLE PAGE</div>
+                      
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Title</Label>
+                          <Input 
+                            value={titlePage.title}
+                            onChange={(e) => setTitlePage({...titlePage, title: e.target.value})}
+                            placeholder="THE BIG SCREENPLAY"
+                            className="text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Credit</Label>
+                          <Input 
+                            value={titlePage.credit}
+                            onChange={(e) => setTitlePage({...titlePage, credit: e.target.value})}
+                            placeholder="written by"
+                            className="text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Author</Label>
+                          <Input 
+                            value={titlePage.author}
+                            onChange={(e) => setTitlePage({...titlePage, author: e.target.value})}
+                            placeholder="Jane Doe"
+                            className="text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Source</Label>
+                          <Input 
+                            value={titlePage.source}
+                            onChange={(e) => setTitlePage({...titlePage, source: e.target.value})}
+                            placeholder="Based on the novel by..."
+                            className="text-xs h-16"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Contact</Label>
+                          <Input 
+                            value={titlePage.contact}
+                            onChange={(e) => setTitlePage({...titlePage, contact: e.target.value})}
+                            placeholder="Agent Details etc."
+                            className="text-xs h-20"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </ScrollArea>
               </motion.aside>
             )}
@@ -1367,12 +1627,53 @@ export default function App() {
           <aside className="w-12 glass-panel border-l flex flex-col items-center py-5 gap-6 shrink-0">
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors hover:text-indigo-600 ${isRightSidebarOpen ? 'text-indigo-600' : 'text-indigo-400/50'}`}
-                onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+                className={`transition-colors hover:text-indigo-600 ${isRightSidebarOpen && activeRightTab === 'formatting' ? 'text-indigo-600' : 'text-indigo-400/50'}`}
+                onClick={() => {
+                  if (isRightSidebarOpen && activeRightTab === 'formatting') {
+                    setIsRightSidebarOpen(false);
+                  } else {
+                    setIsRightSidebarOpen(true);
+                    setActiveRightTab('formatting');
+                  }
+                }}
               >
                 <Type className="w-5 h-5" />
               </TooltipTrigger>
               <TooltipContent side="left">Formatting</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger 
+                className={`transition-colors hover:text-indigo-600 ${isRightSidebarOpen && activeRightTab === 'outline' ? 'text-indigo-600' : 'text-indigo-400/50'}`}
+                onClick={() => {
+                  if (isRightSidebarOpen && activeRightTab === 'outline') {
+                    setIsRightSidebarOpen(false);
+                  } else {
+                    setIsRightSidebarOpen(true);
+                    setActiveRightTab('outline');
+                  }
+                }}
+              >
+                <List className="w-5 h-5" />
+              </TooltipTrigger>
+              <TooltipContent side="left">Outline</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger 
+                className={`transition-colors hover:text-indigo-600 ${isRightSidebarOpen && activeRightTab === 'title' ? 'text-indigo-600' : 'text-indigo-400/50'}`}
+                onClick={() => {
+                  if (isRightSidebarOpen && activeRightTab === 'title') {
+                    setIsRightSidebarOpen(false);
+                  } else {
+                    setIsRightSidebarOpen(true);
+                    setActiveRightTab('title');
+                  }
+                }}
+              >
+                <Layout className="w-5 h-5" />
+              </TooltipTrigger>
+              <TooltipContent side="left">Title Page</TooltipContent>
             </Tooltip>
           </aside>
         </div>
