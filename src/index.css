@@ -91,6 +91,10 @@
 .script-shot { @apply uppercase font-bold text-left mb-0; }
 .script-general { @apply text-left mb-0; }
 
-.script-editor-textarea {
+.script-editor-textarea, .script-line {
   @apply w-full bg-transparent border-none outline-none resize-none p-0 m-0 font-mono text-[14px] leading-none text-indigo-950 placeholder:text-indigo-200/30;
+}
+
+.script-line {
+  @apply min-h-[1.2em];
 }

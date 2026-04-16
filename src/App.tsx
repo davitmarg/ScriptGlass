@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -54,6 +54,7 @@ export default function App() {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<ScriptBlock[]>([]);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+  const [activeType, setActiveType] = useState<BlockType>('action');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
@@ -73,11 +74,10 @@ export default function App() {
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
-  const [history, setHistory] = useState<ScriptBlock[][]>([]);
+  const [history, setHistory] = useState<{ blocks: ScriptBlock[]; selection: { blockId: string | null; offset: number } }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [selectionRange, setSelectionRange] = useState<{ start: number, end: number } | null>(null);
 
-  const blockRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
+  const editorRef = useRef<HTMLDivElement>(null);
 
   const { wordCount, pageCount } = useMemo(() => {
     let words = 0;
@@ -186,90 +186,158 @@ export default function App() {
     }
   };
 
-  const getSelectedIndices = () => {
-    if (!selectionRange) return [];
-    const start = Math.min(selectionRange.start, selectionRange.end);
-    const end = Math.max(selectionRange.start, selectionRange.end);
-    const indices = [];
-    for (let i = start; i <= end; i++) indices.push(i);
-    return indices;
+  const updateFormatting = () => {
+    if (!editorRef.current) return;
+    
+    // Ensure all text is wrapped in divs
+    if (editorRef.current.childNodes.length > 0 && editorRef.current.firstChild?.nodeType === Node.TEXT_NODE) {
+      const text = editorRef.current.firstChild.textContent;
+      const div = document.createElement('div');
+      div.textContent = text;
+      editorRef.current.replaceChild(div, editorRef.current.firstChild);
+    }
+
+    const lines = Array.from(editorRef.current.children) as HTMLElement[];
+    const newBlocks: ScriptBlock[] = [];
+
+    lines.forEach((line, i) => {
+      const text = line.textContent || '';
+      let type: BlockType = 'action';
+
+      // Fountain-style auto-detection
+      if (text.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(text)) {
+        type = 'scene';
+      } else if (text.startsWith('>') && !text.endsWith('<')) {
+        type = 'transition';
+      } else if (text.startsWith('!')) {
+        type = 'shot';
+      } else if (text.startsWith('(') && text.endsWith(')')) {
+        type = 'parenthetical';
+      } else if (text === text.toUpperCase() && text.trim().length > 0 && !/^\d+$/.test(text)) {
+        // Heuristic: Uppercase line is likely a character if followed by dialogue
+        // or if it's just a standalone character name
+        type = 'character';
+      } else if (i > 0) {
+        const prevType = newBlocks[i-1].type;
+        if (prevType === 'character' || prevType === 'parenthetical') {
+          type = 'dialogue';
+        }
+      }
+
+      // Preserve manual overrides if they exist (we'll store type in data attribute)
+      const manualType = line.getAttribute('data-type') as BlockType;
+      if (manualType) type = manualType;
+
+      const id = line.id || Math.random().toString(36).substr(2, 9);
+      line.id = id;
+      line.setAttribute('data-type', type);
+      line.className = `script-line script-${type} ${type === 'character' ? 'font-bold' : ''}`;
+      newBlocks.push({ id, type, content: text });
+    });
+
+    setBlocks(newBlocks);
+    return newBlocks;
   };
 
   useEffect(() => {
-    const handleCopy = (e: ClipboardEvent) => {
-      if (selectionRange) {
-        const target = e.target as HTMLElement;
-        // If we are inside a textarea and it has its own selection, let it handle it
-        if (target.tagName === 'TEXTAREA') {
-          const ta = target as HTMLTextAreaElement;
-          if (ta.selectionStart !== ta.selectionEnd) return;
-        }
-
-        e.preventDefault();
-        const indices = getSelectedIndices();
-        const selectedBlocks = indices.map(i => blocks[i]);
-        const text = blocksToFountain(selectedBlocks);
-        e.clipboardData?.setData('text/plain', text);
-        toast.info(`Copied ${selectedBlocks.length} lines`);
+    if (activeFile && editorRef.current) {
+      // Only initial load if editor is empty
+      if (editorRef.current.children.length === 0 && blocks.length > 0) {
+        syncEditorFromBlocks(blocks);
+        
+        // Focus first line
+        setTimeout(() => {
+          const el = editorRef.current?.firstChild as HTMLElement;
+          if (el) {
+            el.focus();
+            const range = document.createRange();
+            const sel = window.getSelection();
+            if (sel) {
+              range.selectNodeContents(el);
+              range.collapse(false);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+            setActiveBlockId(el.id);
+            const type = el.getAttribute('data-type') as BlockType;
+            if (type) setActiveType(type);
+          }
+        }, 100);
       }
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (selectionRange && (e.key === 'Backspace' || e.key === 'Delete')) {
-        const target = e.target as HTMLElement;
-        if (target.tagName === 'TEXTAREA') {
-          const ta = target as HTMLTextAreaElement;
-          if (ta.selectionStart !== ta.selectionEnd) return;
-        }
-
-        e.preventDefault();
-        const indices = getSelectedIndices();
-        const newBlocks = blocks.filter((_, i) => !indices.includes(i));
-        if (newBlocks.length === 0) {
-          newBlocks.push({ id: Math.random().toString(36).substr(2, 9), type: 'scene', content: '' });
-        }
-        setBlocks(newBlocks);
-        saveToHistory(newBlocks);
-        setSelectionRange(null);
-        const focusIndex = Math.max(0, Math.min(indices[0], newBlocks.length - 1));
-        setActiveBlockId(newBlocks[focusIndex].id);
-        setTimeout(() => blockRefs.current[newBlocks[focusIndex].id]?.focus(), 0);
-        toast.info(`Deleted ${indices.length} lines`);
-      }
-
-      if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
-        const target = e.target as HTMLElement;
-        if (target.tagName === 'TEXTAREA') {
-          const ta = target as HTMLTextAreaElement;
-          // Only select all blocks if the textarea is empty or fully selected already
-          if (ta.value.length > 0 && (ta.selectionStart !== 0 || ta.selectionEnd !== ta.value.length)) return;
-        }
-        e.preventDefault();
-        setSelectionRange({ start: 0, end: blocks.length - 1 });
-      }
-    };
-
-    window.addEventListener('copy', handleCopy);
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('copy', handleCopy);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [selectionRange, blocks]);
+    }
+  }, [activeFile, blocks]);
 
   const saveToHistory = (newBlocks: ScriptBlock[]) => {
+    const sel = window.getSelection();
+    let blockId = null;
+    let offset = 0;
+    if (sel && sel.rangeCount > 0) {
+      let node = sel.anchorNode;
+      while (node && (node.nodeType !== 1 || !(node as HTMLElement).classList.contains('script-line'))) {
+        node = node.parentElement;
+        if (node === editorRef.current || !node) break;
+      }
+      if (node && (node as HTMLElement).classList.contains('script-line')) {
+        blockId = (node as HTMLElement).id;
+        offset = sel.anchorOffset;
+      }
+    }
+
     const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(JSON.parse(JSON.stringify(newBlocks)));
+    newHistory.push({ blocks: JSON.parse(JSON.stringify(newBlocks)), selection: { blockId, offset } });
     if (newHistory.length > 50) newHistory.shift();
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
   };
 
+  const restoreSelection = (selection: { blockId: string | null; offset: number }) => {
+    if (!selection.blockId) return;
+    setTimeout(() => {
+      const el = document.getElementById(selection.blockId!);
+      if (el) {
+        el.focus();
+        const sel = window.getSelection();
+        if (sel) {
+          const range = document.createRange();
+          let textNode = el.firstChild;
+          if (!textNode) {
+            // If empty, just focus the element
+            return;
+          }
+          const finalOffset = Math.min(selection.offset, textNode.textContent?.length || 0);
+          try {
+            range.setStart(textNode, finalOffset);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          } catch (e) {
+            // Fallback
+            range.selectNodeContents(el);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+      }
+    }, 0);
+  };
+
+  const syncEditorFromBlocks = (newBlocks: ScriptBlock[]) => {
+    if (editorRef.current) {
+      editorRef.current.innerHTML = newBlocks.map(b => 
+        `<div id="${b.id}" class="script-line script-${b.type} ${b.type === 'character' ? 'font-bold' : ''}" data-type="${b.type}">${b.content}</div>`
+      ).join('');
+    }
+  };
+
   const undo = () => {
     if (historyIndex > 0) {
       const prevIndex = historyIndex - 1;
-      setBlocks(JSON.parse(JSON.stringify(history[prevIndex])));
+      const item = history[prevIndex];
+      setBlocks(JSON.parse(JSON.stringify(item.blocks)));
       setHistoryIndex(prevIndex);
+      syncEditorFromBlocks(item.blocks);
+      restoreSelection(item.selection);
       toast.info('Undo');
     }
   };
@@ -277,8 +345,11 @@ export default function App() {
   const redo = () => {
     if (historyIndex < history.length - 1) {
       const nextIndex = historyIndex + 1;
-      setBlocks(JSON.parse(JSON.stringify(history[nextIndex])));
+      const item = history[nextIndex];
+      setBlocks(JSON.parse(JSON.stringify(item.blocks)));
       setHistoryIndex(nextIndex);
+      syncEditorFromBlocks(item.blocks);
+      restoreSelection(item.selection);
       toast.info('Redo');
     }
   };
@@ -355,56 +426,39 @@ export default function App() {
     saveToHistory(newBlocks);
   };
 
-  const createBlock = (index: number, type: BlockType = 'action', content: string = '') => {
-    const newBlock = { id: Math.random().toString(36).substr(2, 9), type, content };
-    const newBlocks = [...blocks];
-    newBlocks.splice(index, 0, newBlock);
-    setBlocks(newBlocks);
-    saveToHistory(newBlocks);
-    setActiveBlockId(newBlock.id);
-    setTimeout(() => blockRefs.current[newBlock.id]?.focus(), 0);
-  };
-
-  const deleteBlock = (index: number) => {
-    if (blocks.length <= 1) return;
-    const newBlocks = [...blocks];
-    const prevBlockId = newBlocks[index - 1]?.id;
-    newBlocks.splice(index, 1);
-    setBlocks(newBlocks);
-    saveToHistory(newBlocks);
-    if (prevBlockId) {
-      setActiveBlockId(prevBlockId);
-      setTimeout(() => {
-        const el = blockRefs.current[prevBlockId];
-        if (el) {
-          el.focus();
-          el.setSelectionRange(el.value.length, el.value.length);
-        }
-      }, 0);
-    }
-  };
-
   const applyFormat = (type: BlockType, blockId?: string) => {
-    const id = blockId || activeBlockId;
-    if (!id) return;
+    let el: HTMLElement | null = null;
     
-    const newBlocks = blocks.map(b => {
-      if (b.id !== id) return b;
-      
-      let content = b.content;
-      if (type === 'scene' || type === 'character' || type === 'transition' || type === 'shot') {
-        content = content.toUpperCase();
+    if (blockId) {
+      el = document.getElementById(blockId);
+    } else {
+      // Try to find the element where the cursor is
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        let node = sel.anchorNode;
+        while (node && (node.nodeType !== 1 || !(node as HTMLElement).classList.contains('script-line'))) {
+          node = node.parentElement;
+          if (node === editorRef.current || !node) break;
+        }
+        if (node && (node as HTMLElement).classList.contains('script-line')) {
+          el = node as HTMLElement;
+        }
       }
-      if (type === 'parenthetical' && !content.startsWith('(')) {
-        content = `(${content.replace(/[()]/g, '')})`;
-      }
       
-      return { ...b, type, content };
-    });
-    
-    setBlocks(newBlocks);
-    saveToHistory(newBlocks);
-    setTimeout(() => blockRefs.current[id]?.focus(), 0);
+      // Fallback to activeBlockId
+      if (!el && activeBlockId) {
+        el = document.getElementById(activeBlockId);
+      }
+    }
+
+    if (el) {
+      el.setAttribute('data-type', type);
+      setActiveType(type);
+      const newBlocks = updateFormatting();
+      saveToHistory(newBlocks);
+      // Refocus just in case
+      el.focus();
+    }
   };
 
   useEffect(() => {
@@ -492,6 +546,32 @@ export default function App() {
     }
   }, [activeProject, activeFile]);
 
+  const updateActiveTypeFromSelection = useCallback(() => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    let node = sel.anchorNode;
+    if (!node) return;
+    
+    if (node.nodeType === 3) node = node.parentElement;
+    
+    let current = node;
+    while (current && current !== editorRef.current) {
+      if (current.nodeType === 1 && (current as HTMLElement).classList.contains('script-line')) {
+        const id = (current as HTMLElement).id;
+        const type = (current as HTMLElement).getAttribute('data-type') as BlockType;
+        if (id) setActiveBlockId(id);
+        if (type) setActiveType(type);
+        return;
+      }
+      current = current.parentElement;
+    }
+  }, [activeBlockId, activeType]);
+
+  useEffect(() => {
+    document.addEventListener('selectionchange', updateActiveTypeFromSelection);
+    return () => document.removeEventListener('selectionchange', updateActiveTypeFromSelection);
+  }, [updateActiveTypeFromSelection]);
+
   const fetchProjects = async () => {
     try {
       const res = await fetch('/api/projects');
@@ -504,16 +584,6 @@ export default function App() {
       toast.error('Failed to fetch projects');
     }
   };
-
-  useEffect(() => {
-    blocks.forEach(block => {
-      const el = blockRefs.current[block.id];
-      if (el) {
-        el.style.height = 'auto';
-        el.style.height = `${el.scrollHeight}px`;
-      }
-    });
-  }, [blocks, zoom]);
 
   const fetchFiles = async (project: string) => {
     try {
@@ -534,12 +604,16 @@ export default function App() {
       const data = await res.json();
       const loadedBlocks = fountainToBlocks(data.content || '');
       setBlocks(loadedBlocks);
-      setHistory([JSON.parse(JSON.stringify(loadedBlocks))]);
+      setHistory([{ blocks: JSON.parse(JSON.stringify(loadedBlocks)), selection: { blockId: loadedBlocks[0]?.id || null, offset: 0 } }]);
       setHistoryIndex(0);
       setActiveBlockId(loadedBlocks[0]?.id || null);
+      if (loadedBlocks[0]) setActiveType(loadedBlocks[0].type);
+      
+      // syncEditorFromBlocks will be handled by useEffect
     } catch (error) {
       toast.error('Failed to fetch file content');
-      setBlocks([{ id: Math.random().toString(36).substr(2, 9), type: 'action', content: '' }]);
+      const initialBlocks = [{ id: Math.random().toString(36).substr(2, 9), type: 'action' as BlockType, content: '' }];
+      setBlocks(initialBlocks);
     }
   };
 
@@ -600,9 +674,11 @@ export default function App() {
   };
 
   const handleSave = async () => {
-    if (!activeProject || !activeFile) return;
+    if (!activeProject || !activeFile || !editorRef.current) return;
     setIsSaving(true);
     try {
+      // Re-parse current editor content to ensure we have the latest blocks
+      updateFormatting();
       const fountainContent = blocksToFountain(blocks);
       await fetch(`/api/projects/${activeProject}/files/${activeFile}`, {
         method: 'POST',
@@ -625,10 +701,11 @@ export default function App() {
     if (!newScriptName) return;
     const filename = newScriptName.endsWith('.fountain') ? newScriptName : `${newScriptName}.fountain`;
     try {
+      const initialContent = '';
       const res = await fetch(`/api/projects/${activeProject}/files/${filename}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: '' }),
+        body: JSON.stringify({ content: initialContent }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -637,6 +714,16 @@ export default function App() {
       setActiveFile(filename);
       setIsNewScriptOpen(false);
       setNewScriptName('');
+      
+      const id = 'line-' + Date.now();
+      const initialBlocks: ScriptBlock[] = [{ id, type: 'scene', content: '' }];
+      setBlocks(initialBlocks);
+      setActiveBlockId(id);
+      setActiveType('scene');
+      setHistory([{ blocks: initialBlocks, selection: { blockId: id, offset: 0 } }]);
+      setHistoryIndex(0);
+      
+      // syncEditorFromBlocks will be handled by useEffect
       toast.success('File created');
     } catch (error: any) {
       toast.error(`Failed to create file: ${error.message}`);
@@ -971,12 +1058,19 @@ export default function App() {
             id="editor-container"
             className="flex-1 flex justify-center overflow-y-auto p-10 bg-transparent scrollbar-hide cursor-text"
             onClick={(e) => {
-              if (e.target === e.currentTarget && blocks.length > 0) {
-                const lastBlock = blocks[blocks.length - 1];
-                setActiveBlockId(lastBlock.id);
-                blockRefs.current[lastBlock.id]?.focus();
-                const el = blockRefs.current[lastBlock.id];
-                if (el) el.setSelectionRange(el.value.length, el.value.length);
+              if (e.target === e.currentTarget && editorRef.current) {
+                const lastLine = editorRef.current.lastElementChild as HTMLElement;
+                if (lastLine) {
+                  lastLine.focus();
+                  const range = document.createRange();
+                  const sel = window.getSelection();
+                  range.selectNodeContents(lastLine);
+                  range.collapse(false);
+                  sel?.removeAllRanges();
+                  sel?.addRange(range);
+                } else {
+                  editorRef.current.focus();
+                }
               }
             }}
           >
@@ -984,157 +1078,127 @@ export default function App() {
               style={{ scale: zoom, transformOrigin: 'top center' }}
               className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-16 md:p-20 relative mb-10 cursor-text"
               onClick={(e) => {
-                const target = e.target as HTMLElement;
-                if (target.tagName !== 'TEXTAREA' && blocks.length > 0) {
-                  const lastBlock = blocks[blocks.length - 1];
-                  setActiveBlockId(lastBlock.id);
-                  blockRefs.current[lastBlock.id]?.focus();
-                  // Move cursor to end
-                  const el = blockRefs.current[lastBlock.id];
-                  if (el) {
-                    el.setSelectionRange(el.value.length, el.value.length);
+                if (e.target === e.currentTarget && editorRef.current) {
+                  const lastLine = editorRef.current.lastElementChild as HTMLElement;
+                  if (lastLine) {
+                    lastLine.focus();
+                    const range = document.createRange();
+                    const sel = window.getSelection();
+                    range.selectNodeContents(lastLine);
+                    range.collapse(false);
+                    sel?.removeAllRanges();
+                    sel?.addRange(range);
+                  } else {
+                    editorRef.current.focus();
                   }
                 }
               }}
             >
               {activeFile ? (
-                <div className="space-y-0">
-                  {blocks.map((block, index) => (
-                    <div 
-                      key={block.id} 
-                      className={`group relative ${activeBlockId === block.id ? 'active-block' : ''} ${
-                        getSelectedIndices().includes(index) ? 'bg-indigo-500/10 ring-1 ring-indigo-500/20 rounded-md' : ''
-                      }`}
-                      onClick={(e) => {
-                        if (e.shiftKey && activeBlockId) {
-                          const activeIndex = blocks.findIndex(b => b.id === activeBlockId);
-                          if (activeIndex !== -1) {
-                            setSelectionRange({ start: activeIndex, end: index });
-                          }
-                        } else {
-                          setSelectionRange(null);
+                <div 
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  className="outline-none min-h-full w-full"
+                  onInput={() => {
+                    const newBlocks = updateFormatting();
+                    saveToHistory(newBlocks);
+                    updateActiveTypeFromSelection();
+                  }}
+                  onKeyDown={(e) => {
+                    const isMac = navigator.platform.includes('Mac');
+                    const cmdOrAlt = isMac ? e.metaKey : e.altKey;
+
+                    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                      e.preventDefault();
+                      handleSave();
+                    }
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+                      e.preventDefault();
+                      if (e.shiftKey) redo();
+                      else undo();
+                    }
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
+                      e.preventDefault();
+                      redo();
+                    }
+
+                    const getCurrentLine = () => {
+                      const sel = window.getSelection();
+                      if (!sel || !sel.rangeCount) return null;
+                      let node = sel.anchorNode;
+                      while (node && node.parentElement !== editorRef.current) {
+                        node = node.parentElement;
+                      }
+                      return node as HTMLElement;
+                    };
+
+                    const setLineType = (el: HTMLElement, type: BlockType) => {
+                      el.setAttribute('data-type', type);
+                      setActiveType(type);
+                      updateFormatting();
+                    };
+
+                    // Fade In Shortcuts
+                    if (cmdOrAlt) {
+                      const line = getCurrentLine();
+                      if (line) {
+                        const key = e.key;
+                        if (key === '1') { e.preventDefault(); setLineType(line, 'scene'); }
+                        else if (key === '2') { e.preventDefault(); setLineType(line, 'action'); }
+                        else if (key === '3') { e.preventDefault(); setLineType(line, 'character'); }
+                        else if (key === '4') { e.preventDefault(); setLineType(line, 'parenthetical'); }
+                        else if (key === '5') { e.preventDefault(); setLineType(line, 'dialogue'); }
+                        else if (key === '6') { e.preventDefault(); setLineType(line, 'transition'); }
+                        else if (key === '7') { e.preventDefault(); setLineType(line, 'shot'); }
+                        else if (key === '0') { e.preventDefault(); setLineType(line, 'general'); }
+                      }
+                    }
+
+                    // Natural Flow
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      const line = getCurrentLine();
+                      if (line) {
+                        const type = line.getAttribute('data-type') as BlockType || 'action';
+                        const text = line.textContent || '';
+
+                        // If Dialogue and empty, switch to Action
+                        if (type === 'dialogue' && text.trim() === '') {
+                          e.preventDefault();
+                          setLineType(line, 'action');
+                          return;
                         }
-                      }}
-                    >
-                      <textarea
-                        ref={el => blockRefs.current[block.id] = el}
-                        rows={1}
-                        className={`script-editor-textarea script-${block.type} ${block.type === 'character' ? 'font-bold' : ''}`}
-                        value={block.content}
-                        placeholder={block.type === 'scene' ? 'SCENE HEADING...' : ''}
-                        onFocus={() => {
-                          setActiveBlockId(block.id);
-                          if (!selectionRange || !getSelectedIndices().includes(index)) {
-                            setSelectionRange(null);
-                          }
-                        }}
-                        onChange={(e) => {
-                          let val = e.target.value;
-                          if (block.type === 'scene' || block.type === 'character' || block.type === 'transition' || block.type === 'shot') {
-                            val = val.toUpperCase();
-                          }
-                          if (block.type === 'parenthetical') {
-                            // Ensure it's wrapped in ()
-                            if (!val.startsWith('(')) val = '(' + val;
-                            if (!val.endsWith(')')) val = val + ')';
-                          }
-                          updateBlock(block.id, { content: val });
-                          
-                          // Auto-resize
-                          e.target.style.height = 'auto';
-                          e.target.style.height = `${e.target.scrollHeight}px`;
-                        }}
-                        onKeyDown={(e) => {
-                          const isMac = navigator.platform.includes('Mac');
-                          const cmdOrAlt = isMac ? e.metaKey : e.altKey;
 
-                          if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-                            e.preventDefault();
-                            handleSave();
+                        // Determine next type
+                        let nextType: BlockType = 'action';
+                        if (type === 'character') nextType = 'dialogue';
+                        else if (type === 'parenthetical') nextType = 'dialogue';
+                        else if (type === 'transition') nextType = 'scene';
+                        
+                        // We let the browser create the new div, but we'll style it in the next tick
+                        setTimeout(() => {
+                          const newLine = getCurrentLine();
+                          if (newLine && newLine !== line) {
+                            newLine.setAttribute('data-type', nextType);
+                            updateFormatting();
                           }
+                        }, 0);
+                      }
+                    }
 
-                          if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-                            e.preventDefault();
-                            if (e.shiftKey) redo();
-                            else undo();
-                          }
-
-                          if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
-                            e.preventDefault();
-                            redo();
-                          }
-
-                          // Fade In Shortcuts
-                          if (cmdOrAlt) {
-                            const key = e.key;
-                            if (key === '1') { e.preventDefault(); applyFormat('scene'); }
-                            else if (key === '2') { e.preventDefault(); applyFormat('action'); }
-                            else if (key === '3') { e.preventDefault(); applyFormat('character'); }
-                            else if (key === '4') { e.preventDefault(); applyFormat('parenthetical'); }
-                            else if (key === '5') { e.preventDefault(); applyFormat('dialogue'); }
-                            else if (key === '6') { e.preventDefault(); applyFormat('transition'); }
-                            else if (key === '7') { e.preventDefault(); applyFormat('shot'); }
-                            else if (key === '0') { e.preventDefault(); applyFormat('general'); }
-                          }
-
-                          // Natural Flow
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            
-                            // If Dialogue and empty, switch to Action (simulating "Enter once" logic if they hit enter again)
-                            if (block.type === 'dialogue' && block.content.trim() === '') {
-                              applyFormat('action');
-                              return;
-                            }
-
-                            let nextType: BlockType = 'action';
-                            
-                            if (block.type === 'scene') nextType = 'action';
-                            else if (block.type === 'character') nextType = 'dialogue';
-                            else if (block.type === 'parenthetical') nextType = 'dialogue';
-                            else if (block.type === 'dialogue') nextType = 'action';
-                            else if (block.type === 'transition') nextType = 'scene';
-                            else if (block.type === 'shot') nextType = 'action';
-                            else if (block.type === 'general') nextType = 'general';
-                            else if (block.type === 'action') nextType = 'action';
-
-                            createBlock(index + 1, nextType);
-                          }
-
-                          if (e.key === 'Tab') {
-                            e.preventDefault();
-                            if (block.type === 'action') applyFormat('character');
-                            else if (block.type === 'dialogue') {
-                              createBlock(index + 1, 'parenthetical');
-                            } else if (block.type === 'character') {
-                              // Tab on character could move to parenthetical too
-                              createBlock(index + 1, 'parenthetical');
-                            }
-                          }
-
-                          if (e.key === 'Backspace' && block.content === '') {
-                            e.preventDefault();
-                            deleteBlock(index);
-                          }
-
-                          if (e.key === 'ArrowUp' && index > 0 && e.target.selectionStart === 0) {
-                            e.preventDefault();
-                            const prevId = blocks[index - 1].id;
-                            setActiveBlockId(prevId);
-                            blockRefs.current[prevId]?.focus();
-                          }
-
-                          if (e.key === 'ArrowDown' && index < blocks.length - 1 && e.target.selectionStart === block.content.length) {
-                            e.preventDefault();
-                            const nextId = blocks[index + 1].id;
-                            setActiveBlockId(nextId);
-                            blockRefs.current[nextId]?.focus();
-                          }
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
+                    if (e.key === 'Tab') {
+                      e.preventDefault();
+                      const line = getCurrentLine();
+                      if (line) {
+                        const type = line.getAttribute('data-type') as BlockType || 'action';
+                        if (type === 'action') setLineType(line, 'character');
+                        else if (type === 'character') setLineType(line, 'parenthetical');
+                        else if (type === 'dialogue') setLineType(line, 'parenthetical');
+                        else setLineType(line, 'action');
+                      }
+                    }
+                  }}
+                />
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
                   <FileText className="w-12 h-12 opacity-20" />
@@ -1177,9 +1241,13 @@ export default function App() {
                       ].map((item) => (
                         <button
                           key={item.id}
-                          onClick={() => applyFormat(item.id as BlockType)}
+                          onMouseDown={(e) => {
+                            e.preventDefault(); // Prevent focus loss
+                            applyFormat(item.id as BlockType);
+                            setActiveType(item.id as BlockType);
+                          }}
                           className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all text-left text-sm group ${
-                            blocks.find(b => b.id === activeBlockId)?.type === item.id 
+                            activeType === item.id 
                               ? 'bg-indigo-100 text-indigo-900 font-medium' 
                               : 'hover:bg-indigo-50/50 text-indigo-950'
                           }`}
