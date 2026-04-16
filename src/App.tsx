@@ -48,6 +48,11 @@ interface ScriptBlock {
   content: string;
 }
 
+interface TerminalOutput {
+  type: 'command' | 'stdout' | 'stderr' | 'error';
+  content: string;
+}
+
 export default function App() {
   const [projects, setProjects] = useState<string[]>([]);
   const [activeProject, setActiveProject] = useState<string | null>(null);
@@ -77,8 +82,47 @@ export default function App() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [history, setHistory] = useState<{ blocks: ScriptBlock[]; selection: { blockId: string | null; offset: number } }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [terminalOutput, setTerminalOutput] = useState<TerminalOutput[]>([]);
+  const [terminalInput, setTerminalInput] = useState('');
+  const [terminalMode, setTerminalMode] = useState<'git' | 'interactive'>('git');
 
   const editorRef = useRef<HTMLDivElement>(null);
+  const terminalScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (terminalScrollRef.current) {
+      terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
+    }
+  }, [terminalOutput]);
+
+  const executeTerminalCommand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!terminalInput.trim()) return;
+
+    const cmd = terminalInput.trim();
+    setTerminalOutput(prev => [...prev, { type: 'command', content: cmd }]);
+    setTerminalInput('');
+
+    try {
+      const res = await fetch('/api/terminal/exec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd, project: activeProject })
+      });
+      const data = await res.json();
+      
+      if (data.stdout) setTerminalOutput(prev => [...prev, { type: 'stdout', content: data.stdout }]);
+      if (data.stderr) setTerminalOutput(prev => [...prev, { type: 'stderr', content: data.stderr }]);
+      if (data.error) setTerminalOutput(prev => [...prev, { type: 'error', content: data.error }]);
+      
+      if (activeProject) {
+        fetchGitStatus(activeProject);
+        fetchGitLog(activeProject);
+      }
+    } catch (err) {
+      setTerminalOutput(prev => [...prev, { type: 'error', content: String(err) }]);
+    }
+  };
 
   const { wordCount, pageCount } = useMemo(() => {
     let words = 0;
@@ -874,10 +918,15 @@ export default function App() {
 
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isTerminalOpen ? 'text-indigo-600' : 'text-indigo-900/40'}`}
+                className={`transition-colors ${isTerminalOpen && terminalMode === 'git' ? 'text-indigo-600' : 'text-indigo-900/40'}`}
                 onClick={() => {
-                  setIsTerminalOpen(!isTerminalOpen);
-                  if (!isTerminalOpen && activeProject) fetchGitLog(activeProject);
+                  if (isTerminalOpen && terminalMode === 'git') {
+                    setIsTerminalOpen(false);
+                  } else {
+                    setIsTerminalOpen(true);
+                    setTerminalMode('git');
+                    if (activeProject) fetchGitLog(activeProject);
+                  }
                 }}
               >
                 <Clock className="w-5 h-5" />
@@ -896,6 +945,23 @@ export default function App() {
             </Tooltip>
 
             <div className="mt-auto pb-4 flex flex-col gap-6">
+              <Tooltip>
+                <TooltipTrigger 
+                  className={`transition-colors ${isTerminalOpen && terminalMode === 'interactive' ? 'text-indigo-600' : 'text-indigo-900/40'}`}
+                  onClick={() => {
+                    if (isTerminalOpen && terminalMode === 'interactive') {
+                      setIsTerminalOpen(false);
+                    } else {
+                      setIsTerminalOpen(true);
+                      setTerminalMode('interactive');
+                    }
+                  }}
+                >
+                  <TerminalIcon className="w-5 h-5" />
+                </TooltipTrigger>
+                <TooltipContent side="right">Terminal</TooltipContent>
+              </Tooltip>
+
               <Tooltip>
                 <TooltipTrigger 
                   className={`transition-colors ${isSaving ? 'text-indigo-600 animate-pulse' : 'text-indigo-900/40'}`}
@@ -1316,33 +1382,70 @@ export default function App() {
           {isTerminalOpen && (
             <motion.div
               initial={{ height: 0 }}
-              animate={{ height: 160 }}
+              animate={{ height: terminalMode === 'interactive' ? 240 : 160 }}
               exit={{ height: 0 }}
               className="glass-panel border-t overflow-hidden flex flex-col shrink-0"
             >
               <div className="flex items-center justify-between px-4 py-2 border-b border-indigo-100/20">
                 <div className="flex items-center gap-2 text-[10px] text-indigo-900/40 uppercase tracking-[1px]">
-                  <span>Terminal</span>
+                  <span>{terminalMode === 'interactive' ? 'Interactive Terminal' : 'Project History'}</span>
                   <Separator orientation="vertical" className="h-2 bg-indigo-100/20" />
-                  <span>git-log --oneline -n 5</span>
+                  <span>{terminalMode === 'interactive' ? 'bash / git / shell' : 'git-log --oneline -n 5'}</span>
                 </div>
                 <button className="text-indigo-900/40 hover:text-indigo-900" onClick={() => setIsTerminalOpen(false)}>
                   <ChevronLeft className="w-4 h-4 rotate-[-90deg]" />
                 </button>
               </div>
-              <ScrollArea className="flex-1 p-4">
-                <div className="space-y-1 text-[12px]">
-                  {gitLog.length > 0 ? gitLog.map((log) => (
-                    <div key={log.hash} className="flex gap-4">
-                      <span className="text-indigo-500 font-bold">$</span>
-                      <span className="text-indigo-900/30">{log.hash.substring(0, 7)}</span>
-                      <span className="text-indigo-900/80">{log.message}</span>
-                    </div>
-                  )) : (
-                    <div className="text-indigo-900/30 italic">No commit history yet.</div>
-                  )}
+
+              {terminalMode === 'interactive' ? (
+                <div className="flex-1 flex flex-col overflow-hidden bg-indigo-950/5">
+                  <div 
+                    ref={terminalScrollRef}
+                    className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-1 selection:bg-indigo-500/30"
+                  >
+                    {terminalOutput.map((line, i) => (
+                      <div key={i} className={`whitespace-pre-wrap ${
+                        line.type === 'command' ? 'text-indigo-600 font-bold' :
+                        line.type === 'stderr' ? 'text-amber-600' :
+                        line.type === 'error' ? 'text-red-500' : 'text-indigo-900/80'
+                      }`}>
+                        {line.type === 'command' && <span className="mr-2">$</span>}
+                        {line.content}
+                      </div>
+                    ))}
+                    {terminalOutput.length === 0 && (
+                      <div className="text-indigo-900/30 italic">Ready for commands... try 'git status' or 'ls'</div>
+                    )}
+                  </div>
+                  <form 
+                    onSubmit={executeTerminalCommand}
+                    className="p-2 border-t border-indigo-100/20 bg-white/50 flex items-center gap-2"
+                  >
+                    <span className="text-[11px] font-mono font-bold text-indigo-500 ml-2">$</span>
+                    <input
+                      value={terminalInput}
+                      onChange={(e) => setTerminalInput(e.target.value)}
+                      placeholder="Type a command and press Enter..."
+                      className="flex-1 bg-transparent border-none outline-none text-[11px] font-mono text-indigo-950 h-6"
+                      autoFocus
+                    />
+                  </form>
                 </div>
-              </ScrollArea>
+              ) : (
+                <ScrollArea className="flex-1 p-4">
+                  <div className="space-y-1 text-[12px]">
+                    {gitLog.length > 0 ? gitLog.map((log) => (
+                      <div key={log.hash} className="flex gap-4">
+                        <span className="text-indigo-500 font-bold">$</span>
+                        <span className="text-indigo-900/30">{log.hash.substring(0, 7)}</span>
+                        <span className="text-indigo-900/80">{log.message}</span>
+                      </div>
+                    )) : (
+                      <div className="text-indigo-900/30 italic">No commit history yet.</div>
+                    )}
+                  </div>
+                </ScrollArea>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

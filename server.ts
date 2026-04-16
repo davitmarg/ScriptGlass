@@ -4,7 +4,9 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs/promises";
 import os from "os";
-import { simpleGit, SimpleGit } from "simple-git";
+import { exec } from "child_process";
+import { simpleGit } from "simple-git";
+import type { SimpleGit } from "simple-git";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -448,6 +450,19 @@ async function startServer() {
       });
       res.status(500).json({ error: error.response?.data?.message || String(error) });
     }
+  });
+
+  app.post("/api/terminal/exec", async (req, res) => {
+    const { command, project } = req.body;
+    const cwd = project ? path.join(settings.baseDir, project) : settings.baseDir;
+    
+    exec(command, { cwd }, (error, stdout, stderr) => {
+      res.json({
+        stdout,
+        stderr,
+        error: error ? error.message : null
+      });
+    });
   });
 
   // GitHub OAuth Routes
