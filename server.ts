@@ -53,66 +53,43 @@ class SettingsManager {
 
 const settings = new SettingsManager();
 
+const decodePath = (encoded: string) => Buffer.from(encoded, "base64").toString("utf-8");
+
 class FileSystemProvider {
-  async ensureStorage() {
-    const dir = settings.baseDir;
-    try {
-      await fs.access(dir);
-    } catch {
-      await fs.mkdir(dir, { recursive: true });
-    }
-  }
-
-  async listProjects() {
-    await this.ensureStorage();
-    const entries = await fs.readdir(settings.baseDir, { withFileTypes: true });
-    return entries
-      .filter(e => e.isDirectory() && !e.name.startsWith("."))
-      .map(e => e.name);
-  }
-
-  async createProject(name: string) {
-    const projectPath = path.join(settings.baseDir, name);
-    await fs.mkdir(projectPath, { recursive: true });
-    return name;
-  }
-
-  async listFiles(project: string) {
-    const projectPath = path.join(settings.baseDir, project);
-    const files = await fs.readdir(projectPath);
+  async listFiles(absPath: string) {
+    const files = await fs.readdir(absPath);
     return files.filter(f => (f.endsWith(".fountain") || f.endsWith(".txt")) && !f.startsWith("."));
   }
 
-  async readFile(project: string, filename: string) {
-    const filePath = path.join(settings.baseDir, project, filename);
+  async readFile(absPath: string, filename: string) {
+    const filePath = path.join(absPath, filename);
     return await fs.readFile(filePath, "utf-8");
   }
 
-  async writeFile(project: string, filename: string, content: string) {
-    const projectPath = path.join(settings.baseDir, project);
-    await fs.mkdir(projectPath, { recursive: true });
-    const filePath = path.join(projectPath, filename);
+  async writeFile(absPath: string, filename: string, content: string) {
+    await fs.mkdir(absPath, { recursive: true });
+    const filePath = path.join(absPath, filename);
     await fs.writeFile(filePath, content, "utf-8");
   }
 
-  async deleteFile(project: string, filename: string) {
-    const filePath = path.join(settings.baseDir, project, filename);
+  async deleteFile(absPath: string, filename: string) {
+    const filePath = path.join(absPath, filename);
     await fs.unlink(filePath);
   }
 }
 
 class GitManager {
   private git: SimpleGit;
-  private projectPath: string;
+  private absPath: string;
 
-  constructor(project: string) {
-    this.projectPath = path.join(settings.baseDir, project);
-    this.git = simpleGit(this.projectPath);
+  constructor(absPath: string) {
+    this.absPath = absPath;
+    this.git = simpleGit(this.absPath);
   }
 
   async initRepo() {
     try {
-      await fs.access(path.join(this.projectPath, ".git"));
+      await fs.access(path.join(this.absPath, ".git"));
     } catch {
       await this.git.init();
       await this.git.addConfig("user.name", "ScriptGlass User");
@@ -282,7 +259,6 @@ async function startServer() {
   const fsProvider = new FileSystemProvider();
 
   await settings.load();
-  await fsProvider.ensureStorage();
 
   app.use(express.json());
 
@@ -301,46 +277,20 @@ async function startServer() {
       if (githubToken !== undefined) settings.githubToken = githubToken;
       
       await settings.save();
-      if (baseProjectsDir) await fsProvider.ensureStorage();
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.get("/api/projects", async (req, res) => {
+  app.post("/api/workspace/open", async (req, res) => {
     try {
-      const projects = await fsProvider.listProjects();
-      res.json(projects);
-    } catch (error) {
-      res.status(500).json({ error: String(error) });
-    }
-  });
-
-  app.post("/api/projects", async (req, res) => {
-    try {
-      const { name, type, path: linkPath, url: cloneUrl } = req.body;
+      const { folderPath, type, url: cloneUrl } = req.body;
       
-      if (type === "link") {
-        if (!linkPath) return res.status(400).json({ error: "Path is required for linking" });
-        const projectName = name || path.basename(linkPath);
-        const targetPath = path.join(settings.baseDir, projectName);
-        
-        try {
-          await fs.symlink(linkPath, targetPath, "dir");
-          return res.json({ name: projectName });
-        } catch (error: any) {
-          if (error.code === "EEXIST") {
-            return res.status(400).json({ error: "A project with this name already exists in your workspace." });
-          }
-          throw error;
-        }
-      }
+      if (!folderPath) return res.status(400).json({ error: "Folder path is required" });
 
       if (type === "clone") {
         if (!cloneUrl) return res.status(400).json({ error: "URL is required for cloning" });
-        const projectName = name || path.basename(cloneUrl, ".git");
-        const projectPath = path.join(settings.baseDir, projectName);
         
         let authenticatedUrl = cloneUrl;
         if (settings.githubToken && cloneUrl.includes("github.com")) {
@@ -349,72 +299,75 @@ async function startServer() {
             url.username = "x-access-token";
             url.password = settings.githubToken;
             authenticatedUrl = url.toString();
-          } catch (e) {
-            // If URL parsing fails, fallback to original URL
-          }
+          } catch (e) {}
         }
 
         try {
-          await simpleGit().clone(authenticatedUrl, projectPath);
-          return res.json({ name: projectName });
+          await simpleGit().clone(authenticatedUrl, folderPath);
         } catch (error: any) {
           if (error.message.includes("could not read Username") || error.message.includes("Authentication failed")) {
             throw new Error("Authentication failed. Please check your GitHub token in Settings.");
           }
           throw error;
         }
+      } else {
+        // Just ensure the folder exists
+        await fs.mkdir(folderPath, { recursive: true });
       }
 
-      if (!name) return res.status(400).json({ error: "Project name is required" });
-      const projectName = await fsProvider.createProject(name);
-      const git = new GitManager(projectName);
+      const git = new GitManager(folderPath);
       await git.initRepo();
-      res.json({ name: projectName });
+      res.json({ path: folderPath });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.get("/api/projects/:project/files", async (req, res) => {
+  app.get("/api/workspace/:path/files", async (req, res) => {
     try {
-      const files = await fsProvider.listFiles(req.params.project);
+      const absPath = decodePath(req.params.path);
+      const files = await fsProvider.listFiles(absPath);
       res.json(files);
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.get("/api/projects/:project/files/:filename", async (req, res) => {
+  app.get("/api/workspace/:path/files/:filename", async (req, res) => {
     try {
-      const content = await fsProvider.readFile(req.params.project, req.params.filename);
+      const absPath = decodePath(req.params.path);
+      const content = await fsProvider.readFile(absPath, req.params.filename);
       res.json({ content });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.post("/api/projects/:project/files/:filename", async (req, res) => {
+  app.post("/api/workspace/:path/files/:filename", async (req, res) => {
     try {
+      const absPath = decodePath(req.params.path);
       const { content } = req.body;
-      await fsProvider.writeFile(req.params.project, req.params.filename, content);
+      await fsProvider.writeFile(absPath, req.params.filename, content);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.delete("/api/projects/:project/files/:filename", async (req, res) => {
+  app.delete("/api/workspace/:path/files/:filename", async (req, res) => {
     try {
-      await fsProvider.deleteFile(req.params.project, req.params.filename);
+      const absPath = decodePath(req.params.path);
+      await fsProvider.deleteFile(absPath, req.params.filename);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
   });
 
-  app.get("/api/projects/:project/git/status", async (req, res) => {
+  app.get("/api/workspace/:path/git/status", async (req, res) => {
     try {
-      const git = new GitManager(req.params.project);
+      const absPath = decodePath(req.params.path);
+      const git = new GitManager(absPath);
       const status = await git.getStatus();
       const branch = await git.getBranch();
       res.json({ status, branch });
@@ -423,9 +376,10 @@ async function startServer() {
     }
   });
 
-  app.get("/api/projects/:project/git/log", async (req, res) => {
+  app.get("/api/workspace/:path/git/log", async (req, res) => {
     try {
-      const git = new GitManager(req.params.project);
+      const absPath = decodePath(req.params.path);
+      const git = new GitManager(absPath);
       const log = await git.getLog();
       res.json(log);
     } catch (error) {
@@ -433,29 +387,24 @@ async function startServer() {
     }
   });
 
-  app.post("/api/projects/:project/git/sync", async (req, res) => {
+  app.post("/api/workspace/:path/git/sync", async (req, res) => {
     try {
       const { token, commitMessage } = req.body;
       if (!token) return res.status(400).json({ error: "GitHub token is required" });
       
-      const git = new GitManager(req.params.project);
+      const absPath = decodePath(req.params.path);
+      const git = new GitManager(absPath);
       await git.commit(commitMessage || `Sync ${new Date().toISOString()}`, token);
-      const result = await git.push(token, req.params.project);
+      const result = await git.push(token, path.basename(absPath));
       res.json(result);
     } catch (error: any) {
-      console.error("Sync Error Detailed:", {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        stack: error.stack
-      });
       res.status(500).json({ error: error.response?.data?.message || String(error) });
     }
   });
 
   app.post("/api/terminal/exec", async (req, res) => {
-    const { command, project } = req.body;
-    const cwd = project ? path.join(settings.baseDir, project) : settings.baseDir;
+    const { command, activePath } = req.body;
+    const cwd = activePath || settings.baseDir;
     
     exec(command, { cwd }, (error, stdout, stderr) => {
       res.json({

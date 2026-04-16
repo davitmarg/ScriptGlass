@@ -56,8 +56,7 @@ interface TerminalOutput {
 }
 
 export default function App() {
-  const [projects, setProjects] = useState<string[]>([]);
-  const [activeProject, setActiveProject] = useState<string | null>(null);
+  const [activePath, setActivePath] = useState<string | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<ScriptBlock[]>([]);
@@ -83,8 +82,8 @@ export default function App() {
   const [syncCommitMessage, setSyncCommitMessage] = useState('');
   const [settings, setSettings] = useState({ baseProjectsDir: '' });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
-  const [newProjectData, setNewProjectData] = useState({ name: '', type: 'create', url: '', path: '' });
+  const [isWorkspacePickerOpen, setIsWorkspacePickerOpen] = useState(false);
+  const [workspaceData, setWorkspaceData] = useState({ path: '', type: 'open', url: '' });
   const [isNewScriptOpen, setIsNewScriptOpen] = useState(false);
   const [newScriptName, setNewScriptName] = useState('');
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -92,7 +91,6 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState<'formatting' | 'outline' | 'title'>('formatting');
-  const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [history, setHistory] = useState<{ blocks: ScriptBlock[]; selection: { blockId: string | null; offset: number } }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [terminalOutput, setTerminalOutput] = useState<TerminalOutput[]>([]);
@@ -125,7 +123,7 @@ export default function App() {
       const res = await fetch('/api/terminal/exec', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd, project: activeProject })
+        body: JSON.stringify({ command: cmd, activePath })
       });
       const data = await res.json();
       
@@ -133,9 +131,8 @@ export default function App() {
       if (data.stderr) setTerminalOutput(prev => [...prev, { type: 'stderr', content: data.stderr }]);
       if (data.error) setTerminalOutput(prev => [...prev, { type: 'error', content: data.error }]);
       
-      if (activeProject) {
-        fetchGitStatus(activeProject);
-        fetchGitLog(activeProject);
+      if (activePath) {
+        fetchGitStatus(activePath);
       }
     } catch (err) {
       setTerminalOutput(prev => [...prev, { type: 'error', content: String(err) }]);
@@ -651,10 +648,13 @@ export default function App() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  useEffect(() => {
-    fetchProjects();
-    fetchSettings();
-  }, []);
+  const encodePath = (path: string) => btoa(path);
+
+  const getBasename = (pathStr: string | null) => {
+    if (!pathStr) return '';
+    const parts = pathStr.split(/[/\\]/);
+    return parts[parts.length - 1] || parts[parts.length - 2] || pathStr;
+  };
 
   const fetchSettings = async () => {
     try {
@@ -671,6 +671,10 @@ export default function App() {
   };
 
   useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  useEffect(() => {
     setActiveFile(null);
     setBlocks([]);
     setHistory([]);
@@ -683,19 +687,19 @@ export default function App() {
       notes: '',
       contact: ''
     });
-    if (activeProject) {
-      fetchFiles(activeProject);
-      fetchGitStatus(activeProject);
+    if (activePath) {
+      fetchFiles(activePath);
+      fetchGitStatus(activePath);
     } else {
       setFiles([]);
     }
-  }, [activeProject]);
+  }, [activePath]);
 
   useEffect(() => {
-    if (activeProject && activeFile) {
-      fetchFileContent(activeProject, activeFile);
+    if (activePath && activeFile) {
+      fetchFileContent(activePath, activeFile);
     }
-  }, [activeProject, activeFile]);
+  }, [activePath, activeFile]);
 
   const handleAutocompleteSelect = (value: string) => {
     const sel = window.getSelection();
@@ -764,22 +768,9 @@ export default function App() {
     return () => document.removeEventListener('selectionchange', updateActiveTypeFromSelection);
   }, [updateActiveTypeFromSelection]);
 
-  const fetchProjects = async () => {
+  const fetchFiles = async (absPath: string) => {
     try {
-      const res = await fetch('/api/projects');
-      const data = await res.json();
-      setProjects(data);
-      if (data.length > 0 && !activeProject) {
-        setActiveProject(data[0]);
-      }
-    } catch (error) {
-      toast.error('Failed to fetch projects');
-    }
-  };
-
-  const fetchFiles = async (project: string) => {
-    try {
-      const res = await fetch(`/api/projects/${project}/files`);
+      const res = await fetch(`/api/workspace/${encodePath(absPath)}/files`);
       const data = await res.json();
       setFiles(data);
       if (data.length > 0 && !activeFile) {
@@ -790,9 +781,9 @@ export default function App() {
     }
   };
 
-  const fetchFileContent = async (project: string, filename: string) => {
+  const fetchFileContent = async (absPath: string, filename: string) => {
     try {
-      const res = await fetch(`/api/projects/${project}/files/${filename}`);
+      const res = await fetch(`/api/workspace/${encodePath(absPath)}/files/${filename}`);
       const data = await res.json();
       const loadedBlocks = fountainToBlocks(data.content || '');
       setBlocks(loadedBlocks);
@@ -800,8 +791,6 @@ export default function App() {
       setHistoryIndex(0);
       setActiveBlockId(loadedBlocks[0]?.id || null);
       if (loadedBlocks[0]) setActiveType(loadedBlocks[0].type);
-      
-      // syncEditorFromBlocks will be handled by useEffect
     } catch (error) {
       toast.error('Failed to fetch file content');
       const initialBlocks = [{ id: Math.random().toString(36).substr(2, 9), type: 'action' as BlockType, content: '' }];
@@ -809,9 +798,9 @@ export default function App() {
     }
   };
 
-  const fetchGitStatus = async (project: string) => {
+  const fetchGitStatus = async (absPath: string) => {
     try {
-      const res = await fetch(`/api/projects/${project}/git/status`);
+      const res = await fetch(`/api/workspace/${encodePath(absPath)}/git/status`);
       const data = await res.json();
       setGitStatus(data);
     } catch (error) {
@@ -819,32 +808,25 @@ export default function App() {
     }
   };
 
-  const fetchGitLog = async (project: string) => {
+  const handleOpenWorkspace = async () => {
     try {
-      const res = await fetch(`/api/projects/${project}/git/log`);
-      const data = await res.json();
-      setGitLog(data.all);
-    } catch (error) {
-      console.error('Failed to fetch git log');
-    }
-  };
-
-  const handleCreateProject = async () => {
-    try {
-      const res = await fetch('/api/projects', {
+      const res = await fetch('/api/workspace/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newProjectData),
+        body: JSON.stringify({ 
+          folderPath: workspaceData.path,
+          type: workspaceData.type,
+          url: workspaceData.url 
+        }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      fetchProjects();
-      setActiveProject(data.name);
-      setIsNewProjectOpen(false);
-      setNewProjectData({ name: '', type: 'create', url: '', path: '' });
-      toast.success(newProjectData.type === 'clone' ? 'Project cloned' : (newProjectData.type === 'link' ? 'Project linked' : 'Project created'));
+      setActivePath(data.path);
+      setIsWorkspacePickerOpen(false);
+      setWorkspaceData({ path: '', type: 'open', url: '' });
+      toast.success(workspaceData.type === 'clone' ? 'Repository cloned and opened' : 'Folder opened');
     } catch (error: any) {
-      toast.error(`Failed to create project: ${error.message}`);
+      toast.error(`Failed to open folder: ${error.message}`);
     }
   };
 
@@ -859,20 +841,20 @@ export default function App() {
       if (data.error) throw new Error(data.error);
       toast.success('Settings updated');
       setIsSettingsOpen(false);
-      fetchProjects(); // Re-fetch projects from new location
+      fetchFiles(activePath); // Re-fetch from new location if needed, but works on abs paths now
     } catch (error: any) {
       toast.error(`Failed to update settings: ${error.message}`);
     }
   };
 
   const handleSave = async () => {
-    if (!activeProject || !activeFile || !editorRef.current) return;
+    if (!activePath || !activeFile || !editorRef.current) return;
     setIsSaving(true);
     try {
       // Re-parse current editor content to ensure we have the latest blocks
       updateFormatting();
       const fountainContent = blocksToFountain(blocks);
-      await fetch(`/api/projects/${activeProject}/files/${activeFile}`, {
+      await fetch(`/api/workspace/${encodePath(activePath)}/files/${activeFile}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: fountainContent }),
@@ -886,15 +868,15 @@ export default function App() {
   };
 
   const handleCreateFile = async () => {
-    if (!activeProject) {
-      toast.error('Please select or create a project first');
+    if (!activePath) {
+      toast.error('Please open a folder first');
       return;
     }
     if (!newScriptName) return;
     const filename = newScriptName.endsWith('.fountain') ? newScriptName : `${newScriptName}.fountain`;
     try {
       const initialContent = '';
-      const res = await fetch(`/api/projects/${activeProject}/files/${filename}`, {
+      const res = await fetch(`/api/workspace/${encodePath(activePath)}/files/${filename}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: initialContent }),
@@ -902,7 +884,7 @@ export default function App() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       
-      fetchFiles(activeProject);
+      fetchFiles(activePath);
       setActiveFile(filename);
       setIsNewScriptOpen(false);
       setNewScriptName('');
@@ -935,14 +917,14 @@ export default function App() {
   };
 
   const handleSync = async () => {
-    if (!activeProject) return;
+    if (!activePath) return;
     if (!githubToken) {
       toast.error('Please connect your GitHub account first');
       return;
     }
     setIsSyncing(true);
     try {
-      const res = await fetch(`/api/projects/${activeProject}/git/sync`, {
+      const res = await fetch(`/api/workspace/${encodePath(activePath)}/git/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: githubToken, commitMessage: syncCommitMessage }),
@@ -952,7 +934,7 @@ export default function App() {
       
       toast.success('Successfully pushed to GitHub');
       setSyncCommitMessage('');
-      fetchGitStatus(activeProject);
+      fetchGitStatus(activePath);
     } catch (error: any) {
       toast.error(`Failed to push: ${error.message}`);
       console.error(error);
@@ -967,10 +949,10 @@ export default function App() {
   };
 
   const performDeleteFile = async () => {
-    if (!activeProject || !fileToDelete) return;
+    if (!activePath || !fileToDelete) return;
     try {
-      await fetch(`/api/projects/${activeProject}/files/${fileToDelete}`, { method: 'DELETE' });
-      fetchFiles(activeProject);
+      await fetch(`/api/workspace/${encodePath(activePath)}/files/${fileToDelete}`, { method: 'DELETE' });
+      fetchFiles(activePath);
       if (activeFile === fileToDelete) {
         setActiveFile(null);
         setBlocks([]);
@@ -997,7 +979,7 @@ export default function App() {
             <div className="w-3 h-3 rounded-full bg-emerald-400/80" />
           </div>
           <div className="text-[12px] font-semibold text-indigo-900/60 uppercase tracking-wider flex-1">
-            ScriptGlass {activeProject && `— ${activeProject}`} — {activeFile || 'Untitled'}
+            ScriptGlass {activePath && `— ${getBasename(activePath)}`} — {activeFile || 'Untitled'}
           </div>
           <Button 
             variant="ghost" 
@@ -1016,20 +998,20 @@ export default function App() {
           <aside className="w-12 glass-panel border-r flex flex-col items-center py-5 gap-6 shrink-0">
             <Tooltip>
               <TooltipTrigger 
-                className="text-indigo-900/40 hover:text-indigo-600 transition-colors"
-                onClick={() => setIsProjectPickerOpen(true)}
+                className={`transition-colors ${isWorkspacePickerOpen ? 'text-indigo-600' : 'text-indigo-900/40 hover:text-indigo-600'}`}
+                onClick={() => setIsWorkspacePickerOpen(true)}
               >
                 <Folder className="w-5 h-5" />
               </TooltipTrigger>
-              <TooltipContent side="right">Open Project</TooltipContent>
+              <TooltipContent side="right">Open Folder</TooltipContent>
             </Tooltip>
 
             <Tooltip>
               <TooltipTrigger 
                 className={`transition-colors ${isSidebarOpen ? 'text-indigo-600' : 'text-indigo-400/50'}`}
                 onClick={() => {
-                  if (!activeProject) {
-                    toast.error('Select a project first');
+                  if (!activePath) {
+                    toast.error('Open a folder first');
                     return;
                   }
                   setIsSidebarOpen(!isSidebarOpen);
@@ -1042,16 +1024,6 @@ export default function App() {
 
             <Tooltip>
               <TooltipTrigger 
-                className="text-indigo-900/40 hover:text-indigo-600 transition-colors"
-                onClick={() => setIsNewProjectOpen(true)}
-              >
-                <Plus className="w-5 h-5" />
-              </TooltipTrigger>
-              <TooltipContent side="right">New Project</TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger 
                 className={`transition-colors ${isTerminalOpen && terminalMode === 'git' ? 'text-indigo-600' : 'text-indigo-900/40'}`}
                 onClick={() => {
                   if (isTerminalOpen && terminalMode === 'git') {
@@ -1059,7 +1031,7 @@ export default function App() {
                   } else {
                     setIsTerminalOpen(true);
                     setTerminalMode('git');
-                    if (activeProject) fetchGitLog(activeProject);
+                    if (activePath) fetchGitStatus(activePath);
                   }
                 }}
               >
@@ -1127,7 +1099,7 @@ export default function App() {
                     <DialogTitle>GitHub Integration</DialogTitle>
                     <DialogDescription>
                       {isGitHubConnected 
-                        ? `Syncing project "${activeProject}" to GitHub.`
+                        ? `Syncing workspace "${getBasename(activePath)}" to GitHub.`
                         : "Connect your GitHub account to sync your scripts to a private repository."}
                     </DialogDescription>
                   </DialogHeader>
@@ -1178,13 +1150,13 @@ export default function App() {
                         </div>
 
                         <p className="text-[10px] text-gray-500">
-                          This will create/update a repository named <strong>{activeProject}</strong> on your GitHub account.
+                          This will create/update a repository named <strong>{getBasename(activePath)}</strong> on your GitHub account.
                         </p>
                       </div>
                     )}
                   </div>
                   <DialogFooter>
-                    <Button onClick={handleSync} disabled={isSyncing || !isGitHubConnected || !activeProject}>
+                    <Button onClick={handleSync} disabled={isSyncing || !isGitHubConnected || !activePath}>
                       {isSyncing ? 'Syncing...' : 'Sync Now'}
                     </Button>
                   </DialogFooter>
@@ -1195,7 +1167,7 @@ export default function App() {
 
           {/* File List (Conditional) */}
           <AnimatePresence>
-            {isSidebarOpen && activeProject && (
+            {isSidebarOpen && activePath && (
               <motion.div
                 initial={{ width: 0, opacity: 0 }}
                 animate={{ width: 240, opacity: 1 }}
@@ -1204,7 +1176,7 @@ export default function App() {
               >
                 <div className="flex-1 flex flex-col min-h-0">
                   <div className="p-4 flex items-center justify-between text-[11px] font-bold text-indigo-900/40 uppercase tracking-widest border-b border-indigo-100/20">
-                    <span className="truncate">{activeProject}</span>
+                    <span className="truncate">{getBasename(activePath)}</span>
                     <Tooltip>
                       <TooltipTrigger 
                         onClick={() => setIsNewScriptOpen(true)} 
@@ -1246,7 +1218,7 @@ export default function App() {
                         <div className="p-8 flex flex-col items-center justify-center text-center space-y-3">
                           <FileText className="w-8 h-8 text-indigo-100" />
                           <div className="text-xs text-indigo-900/30 italic">
-                            No scripts in this project.
+                            No scripts in this folder.
                           </div>
                           <Button variant="outline" size="sm" className="text-[10px]" onClick={() => setIsNewScriptOpen(true)}>
                             Create First Script
@@ -1282,7 +1254,7 @@ export default function App() {
             }}
           >
             <motion.div 
-              key={`${activeProject}-${activeFile || 'none'}`}
+              key={`${activePath}-${activeFile || 'none'}`}
               style={{ scale: zoom, transformOrigin: 'top center' }}
               className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-16 md:p-20 relative mb-10 cursor-text"
               onClick={(e) => {
@@ -1806,109 +1778,59 @@ export default function App() {
           </DialogContent>
         </Dialog>
 
-        {/* New Project Dialog */}
-        <Dialog open={isNewProjectOpen} onOpenChange={setIsNewProjectOpen}>
+        {/* Workspace Picker Dialog */}
+        <Dialog open={isWorkspacePickerOpen} onOpenChange={setIsWorkspacePickerOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add Project</DialogTitle>
+              <DialogTitle>Open Workspace</DialogTitle>
               <DialogDescription>
-                Create a new project, clone from GitHub, or link an existing folder.
+                Open an existing folder or clone a Git repository.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="flex gap-2 p-1 bg-[#ebebeb] rounded-md">
                 <Button 
-                  variant={newProjectData.type === 'create' ? 'secondary' : 'ghost'} 
+                  variant={workspaceData.type === 'open' ? 'secondary' : 'ghost'} 
                   className="flex-1 h-8 text-xs"
-                  onClick={() => setNewProjectData({ ...newProjectData, type: 'create' })}
+                  onClick={() => setWorkspaceData({ ...workspaceData, type: 'open' })}
                 >
-                  Create
+                  Open Folder
                 </Button>
                 <Button 
-                  variant={newProjectData.type === 'clone' ? 'secondary' : 'ghost'} 
+                  variant={workspaceData.type === 'clone' ? 'secondary' : 'ghost'} 
                   className="flex-1 h-8 text-xs"
-                  onClick={() => setNewProjectData({ ...newProjectData, type: 'clone' })}
+                  onClick={() => setWorkspaceData({ ...workspaceData, type: 'clone' })}
                 >
-                  Clone
-                </Button>
-                <Button 
-                  variant={newProjectData.type === 'link' ? 'secondary' : 'ghost'} 
-                  className="flex-1 h-8 text-xs"
-                  onClick={() => setNewProjectData({ ...newProjectData, type: 'link' })}
-                >
-                  Link
+                  Clone Repo
                 </Button>
               </div>
 
-              {newProjectData.type === 'create' && (
+              <div className="grid gap-2">
+                <Label htmlFor="workspacePath">Folder Path</Label>
+                <Input 
+                  id="workspacePath" 
+                  placeholder={settings.baseProjectsDir || "/path/to/folder"}
+                  value={workspaceData.path}
+                  onChange={(e) => setWorkspaceData({ ...workspaceData, path: e.target.value })}
+                />
+              </div>
+
+              {workspaceData.type === 'clone' && (
                 <div className="grid gap-2">
-                  <Label htmlFor="projName">Project Name</Label>
+                  <Label htmlFor="gitUrl">Git Repository URL</Label>
                   <Input 
-                    id="projName" 
-                    placeholder="My New Script" 
-                    value={newProjectData.name}
-                    onChange={(e) => setNewProjectData({ ...newProjectData, name: e.target.value })}
+                    id="gitUrl" 
+                    placeholder="https://github.com/user/repo.git"
+                    value={workspaceData.url}
+                    onChange={(e) => setWorkspaceData({ ...workspaceData, url: e.target.value })}
                   />
-                </div>
-              )}
-
-              {newProjectData.type === 'clone' && (
-                <div className="grid gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="cloneUrl">GitHub Repository URL</Label>
-                    <Input 
-                      id="cloneUrl" 
-                      placeholder="https://github.com/user/repo.git" 
-                      value={newProjectData.url}
-                      onChange={(e) => setNewProjectData({ ...newProjectData, url: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="projNameClone">Project Name (Optional)</Label>
-                    <Input 
-                      id="projNameClone" 
-                      placeholder="Leave empty to use repo name" 
-                      value={newProjectData.name}
-                      onChange={(e) => setNewProjectData({ ...newProjectData, name: e.target.value })}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {newProjectData.type === 'link' && (
-                <div className="grid gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="linkPath">Local Folder Path</Label>
-                    <Input 
-                      id="linkPath" 
-                      placeholder="/Users/name/Documents/MyProject" 
-                      value={newProjectData.path}
-                      onChange={(e) => setNewProjectData({ ...newProjectData, path: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="projNameLink">Project Name (Optional)</Label>
-                    <Input 
-                      id="projNameLink" 
-                      placeholder="Leave empty to use folder name" 
-                      value={newProjectData.name}
-                      onChange={(e) => setNewProjectData({ ...newProjectData, name: e.target.value })}
-                    />
-                  </div>
                 </div>
               )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsNewProjectOpen(false)}>Cancel</Button>
-              <Button 
-                onClick={handleCreateProject} 
-                disabled={
-                  (newProjectData.type === 'create' && !newProjectData.name) ||
-                  (newProjectData.type === 'clone' && !newProjectData.url) ||
-                  (newProjectData.type === 'link' && !newProjectData.path)
-                }
-              >
-                {newProjectData.type === 'clone' ? 'Clone Project' : (newProjectData.type === 'link' ? 'Link Project' : 'Create Project')}
+              <Button variant="outline" onClick={() => setIsWorkspacePickerOpen(false)}>Cancel</Button>
+              <Button onClick={handleOpenWorkspace}>
+                {workspaceData.type === 'clone' ? 'Clone & Open' : 'Open Folder'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1933,49 +1855,6 @@ export default function App() {
           </DialogContent>
         </Dialog>
 
-        {/* Project Picker Dialog */}
-        <Dialog open={isProjectPickerOpen} onOpenChange={setIsProjectPickerOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Open Project</DialogTitle>
-              <DialogDescription>
-                Select a project to load.
-              </DialogDescription>
-            </DialogHeader>
-            <ScrollArea className="max-h-[400px] pr-4">
-              <div className="grid gap-2 py-4">
-                {projects.map((project) => (
-                  <Button
-                    key={project}
-                    variant={activeProject === project ? "secondary" : "outline"}
-                    className="justify-start gap-3 h-12"
-                    onClick={() => {
-                      setActiveProject(project);
-                      setIsProjectPickerOpen(false);
-                      setIsSidebarOpen(true);
-                      toast.success(`Loaded project: ${project}`);
-                    }}
-                  >
-                    <Folder className={`w-4 h-4 ${activeProject === project ? 'text-indigo-600' : 'text-indigo-400'}`} />
-                    <span className="truncate">{project}</span>
-                  </Button>
-                ))}
-                {projects.length === 0 && (
-                  <div className="text-center py-8 text-indigo-900/30">
-                    No projects found.
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsProjectPickerOpen(false)}>Close</Button>
-              <Button onClick={() => {
-                setIsProjectPickerOpen(false);
-                setIsNewProjectOpen(true);
-              }}>Create New Project</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {/* New Script Dialog */}
         <Dialog open={isNewScriptOpen} onOpenChange={setIsNewScriptOpen}>
@@ -1983,7 +1862,7 @@ export default function App() {
             <DialogHeader>
               <DialogTitle>New Script</DialogTitle>
               <DialogDescription>
-                Create a new Fountain script in project: <strong>{activeProject}</strong>
+                Create a new Fountain script in folder: <strong>{getBasename(activePath)}</strong>
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
