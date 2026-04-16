@@ -354,6 +354,19 @@ export default function App() {
     }
   };
 
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text/plain');
+    
+    // Use insertText to maintain undo history and strip formatting
+    document.execCommand('insertText', false, text);
+    
+    // Update state and history
+    const newBlocks = updateFormatting();
+    saveToHistory(newBlocks);
+    updateActiveTypeFromSelection();
+  };
+
   const fountainToBlocks = (fountain: string): ScriptBlock[] => {
     if (!fountain.trim()) return [{ id: Math.random().toString(36).substr(2, 9), type: 'scene', content: '' }];
     
@@ -1105,6 +1118,7 @@ export default function App() {
                     saveToHistory(newBlocks);
                     updateActiveTypeFromSelection();
                   }}
+                  onPaste={handlePaste}
                   onKeyDown={(e) => {
                     const isMac = navigator.platform.includes('Mac');
                     const cmdOrAlt = isMac ? e.metaKey : e.altKey;

@@ -117,7 +117,41 @@ class GitManager {
     }
   }
 
-  async commit(message: string) {
+  async ensureIdentity(token?: string) {
+    try {
+      const config = await this.git.listConfig();
+      if (config.all["user.name"] && config.all["user.email"]) {
+        return;
+      }
+
+      let name = "ScriptGlass User";
+      let email = "user@scriptglass.app";
+
+      if (token) {
+        try {
+          const userRes = await axios.get("https://api.github.com/user", {
+            headers: { 
+              Authorization: `token ${token}`,
+              "User-Agent": "ScriptGlass-App"
+            },
+          });
+          if (userRes.data.name) name = userRes.data.name;
+          if (userRes.data.email) email = userRes.data.email;
+          else if (userRes.data.login) email = `${userRes.data.login}@users.noreply.github.com`;
+        } catch (e) {
+          console.error("Failed to fetch user identity from GitHub, using defaults");
+        }
+      }
+
+      await this.git.addConfig("user.name", name);
+      await this.git.addConfig("user.email", email);
+    } catch (error) {
+      console.error("Error ensuring git identity:", error);
+    }
+  }
+
+  async commit(message: string, token?: string) {
+    await this.ensureIdentity(token);
     await this.git.add(".");
     const status = await this.git.status();
     if (status.staged.length > 0) {
@@ -304,8 +338,28 @@ async function startServer() {
         if (!cloneUrl) return res.status(400).json({ error: "URL is required for cloning" });
         const projectName = name || path.basename(cloneUrl, ".git");
         const projectPath = path.join(settings.baseDir, projectName);
-        await simpleGit().clone(cloneUrl, projectPath);
-        return res.json({ name: projectName });
+        
+        let authenticatedUrl = cloneUrl;
+        if (settings.githubToken && cloneUrl.includes("github.com")) {
+          try {
+            const url = new URL(cloneUrl);
+            url.username = "x-access-token";
+            url.password = settings.githubToken;
+            authenticatedUrl = url.toString();
+          } catch (e) {
+            // If URL parsing fails, fallback to original URL
+          }
+        }
+
+        try {
+          await simpleGit().clone(authenticatedUrl, projectPath);
+          return res.json({ name: projectName });
+        } catch (error: any) {
+          if (error.message.includes("could not read Username") || error.message.includes("Authentication failed")) {
+            throw new Error("Authentication failed. Please check your GitHub token in Settings.");
+          }
+          throw error;
+        }
       }
 
       if (!name) return res.status(400).json({ error: "Project name is required" });
@@ -382,7 +436,7 @@ async function startServer() {
       if (!token) return res.status(400).json({ error: "GitHub token is required" });
       
       const git = new GitManager(req.params.project);
-      await git.commit(commitMessage || `Sync ${new Date().toISOString()}`);
+      await git.commit(commitMessage || `Sync ${new Date().toISOString()}`, token);
       const result = await git.push(token, req.params.project);
       res.json(result);
     } catch (error: any) {
