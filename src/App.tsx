@@ -92,6 +92,7 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState<'formatting' | 'outline' | 'title'>('formatting');
+  const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [history, setHistory] = useState<{ blocks: ScriptBlock[]; selection: { blockId: string | null; offset: number } }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [terminalOutput, setTerminalOutput] = useState<TerminalOutput[]>([]);
@@ -670,13 +671,23 @@ export default function App() {
   };
 
   useEffect(() => {
+    setActiveFile(null);
+    setBlocks([]);
+    setHistory([]);
+    setHistoryIndex(-1);
+    setTitlePage({
+      title: '',
+      credit: 'written by',
+      author: '',
+      source: '',
+      notes: '',
+      contact: ''
+    });
     if (activeProject) {
       fetchFiles(activeProject);
       fetchGitStatus(activeProject);
     } else {
       setFiles([]);
-      setActiveFile(null);
-      setBlocks([]);
     }
   }, [activeProject]);
 
@@ -1005,12 +1016,28 @@ export default function App() {
           <aside className="w-12 glass-panel border-r flex flex-col items-center py-5 gap-6 shrink-0">
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isSidebarOpen ? 'text-indigo-600' : 'text-indigo-400/50'}`}
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="text-indigo-900/40 hover:text-indigo-600 transition-colors"
+                onClick={() => setIsProjectPickerOpen(true)}
               >
                 <Folder className="w-5 h-5" />
               </TooltipTrigger>
-              <TooltipContent side="right">Explorer</TooltipContent>
+              <TooltipContent side="right">Open Project</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger 
+                className={`transition-colors ${isSidebarOpen ? 'text-indigo-600' : 'text-indigo-400/50'}`}
+                onClick={() => {
+                  if (!activeProject) {
+                    toast.error('Select a project first');
+                    return;
+                  }
+                  setIsSidebarOpen(!isSidebarOpen);
+                }}
+              >
+                <FileText className="w-5 h-5" />
+              </TooltipTrigger>
+              <TooltipContent side="right">Scripts</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -1021,22 +1048,6 @@ export default function App() {
                 <Plus className="w-5 h-5" />
               </TooltipTrigger>
               <TooltipContent side="right">New Project</TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger 
-                className="text-indigo-900/40 hover:text-indigo-600 transition-colors"
-                onClick={() => {
-                  if (!activeProject) {
-                    toast.error('Please select or create a project first');
-                    return;
-                  }
-                  setIsNewScriptOpen(true);
-                }}
-              >
-                <FileText className="w-5 h-5" />
-              </TooltipTrigger>
-              <TooltipContent side="right">New Script</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -1184,71 +1195,64 @@ export default function App() {
 
           {/* File List (Conditional) */}
           <AnimatePresence>
-            {isSidebarOpen && (
+            {isSidebarOpen && activeProject && (
               <motion.div
                 initial={{ width: 0, opacity: 0 }}
                 animate={{ width: 240, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 className="glass-panel border-r overflow-hidden flex flex-col shrink-0"
               >
-                <div className="flex flex-col h-1/2 border-b border-indigo-100/20">
+                <div className="flex-1 flex flex-col min-h-0">
                   <div className="p-4 flex items-center justify-between text-[11px] font-bold text-indigo-900/40 uppercase tracking-widest border-b border-indigo-100/20">
-                    <span>Projects</span>
-                    <button onClick={() => setIsNewProjectOpen(true)} className="hover:text-indigo-600">
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
+                    <span className="truncate">{activeProject}</span>
+                    <Tooltip>
+                      <TooltipTrigger 
+                        onClick={() => setIsNewScriptOpen(true)} 
+                        className="hover:text-indigo-600 p-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </TooltipTrigger>
+                      <TooltipContent>New Script</TooltipContent>
+                    </Tooltip>
                   </div>
+                  
                   <ScrollArea className="flex-1">
                     <div className="p-2 space-y-1">
-                      {projects.map((project) => (
-                        <div
-                          key={project}
-                          className={`p-2 rounded-lg cursor-pointer transition-all text-sm truncate ${
-                            activeProject === project ? 'glass-card text-indigo-900 font-medium' : 'hover:bg-white/20 text-indigo-900/60'
-                          }`}
-                          onClick={() => setActiveProject(project)}
-                        >
-                          {project}
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </div>
-
-                <div className="flex flex-col h-1/2">
-                  <div className="p-4 flex items-center justify-between text-[11px] font-bold text-indigo-900/40 uppercase tracking-widest border-b border-indigo-100/20">
-                    <span>Files</span>
-                    <button onClick={() => setIsNewScriptOpen(true)} className="hover:text-indigo-600">
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <ScrollArea className="flex-1">
-                    <div className="p-2 space-y-1">
-                      {files.map((file) => (
+                      {files.length > 0 ? files.map((file) => (
                         <div
                           key={file}
                           className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all text-sm ${
-                            activeFile === file ? 'glass-card text-indigo-900 font-medium' : 'hover:bg-white/20 text-indigo-900/60'
+                            activeFile === file 
+                              ? 'glass-card text-indigo-950 font-medium' 
+                              : 'hover:bg-indigo-50/30 text-indigo-900/60'
                           }`}
                           onClick={() => setActiveFile(file)}
                         >
-                          <div className="flex items-center gap-2 overflow-hidden">
+                          <div className="flex items-center gap-2 overflow-hidden px-1">
                             <FileText className="w-4 h-4 flex-shrink-0" />
                             <span className="truncate">{file}</span>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="opacity-0 group-hover:opacity-100 h-6 w-6 text-gray-400 hover:text-red-500"
+                          <button
+                            className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-md hover:bg-red-50"
                             onClick={(e) => {
                               e.stopPropagation();
                               confirmDeleteFile(file);
                             }}
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )) : (
+                        <div className="p-8 flex flex-col items-center justify-center text-center space-y-3">
+                          <FileText className="w-8 h-8 text-indigo-100" />
+                          <div className="text-xs text-indigo-900/30 italic">
+                            No scripts in this project.
+                          </div>
+                          <Button variant="outline" size="sm" className="text-[10px]" onClick={() => setIsNewScriptOpen(true)}>
+                            Create First Script
                           </Button>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </ScrollArea>
                 </div>
@@ -1278,6 +1282,7 @@ export default function App() {
             }}
           >
             <motion.div 
+              key={`${activeProject}-${activeFile || 'none'}`}
               style={{ scale: zoom, transformOrigin: 'top center' }}
               className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-16 md:p-20 relative mb-10 cursor-text"
               onClick={(e) => {
@@ -1924,6 +1929,50 @@ export default function App() {
             <DialogFooter className="gap-2 sm:gap-0">
               <Button variant="outline" onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</Button>
               <Button variant="destructive" onClick={performDeleteFile}>Delete Script</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Project Picker Dialog */}
+        <Dialog open={isProjectPickerOpen} onOpenChange={setIsProjectPickerOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Open Project</DialogTitle>
+              <DialogDescription>
+                Select a project to load.
+              </DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="max-h-[400px] pr-4">
+              <div className="grid gap-2 py-4">
+                {projects.map((project) => (
+                  <Button
+                    key={project}
+                    variant={activeProject === project ? "secondary" : "outline"}
+                    className="justify-start gap-3 h-12"
+                    onClick={() => {
+                      setActiveProject(project);
+                      setIsProjectPickerOpen(false);
+                      setIsSidebarOpen(true);
+                      toast.success(`Loaded project: ${project}`);
+                    }}
+                  >
+                    <Folder className={`w-4 h-4 ${activeProject === project ? 'text-indigo-600' : 'text-indigo-400'}`} />
+                    <span className="truncate">{project}</span>
+                  </Button>
+                ))}
+                {projects.length === 0 && (
+                  <div className="text-center py-8 text-indigo-900/30">
+                    No projects found.
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsProjectPickerOpen(false)}>Close</Button>
+              <Button onClick={() => {
+                setIsProjectPickerOpen(false);
+                setIsNewProjectOpen(true);
+              }}>Create New Project</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
