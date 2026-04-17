@@ -19,7 +19,7 @@ const DEFAULT_STORAGE_DIR = path.join(os.homedir(), "Documents", "ScriptGlass");
 // --- Services ---
 
 class SettingsManager {
-  private config: { baseProjectsDir: string; githubToken?: string } = { baseProjectsDir: DEFAULT_STORAGE_DIR };
+  private config: { baseProjectsDir: string; githubToken?: string; geminiKey?: string } = { baseProjectsDir: DEFAULT_STORAGE_DIR };
 
   async load() {
     try {
@@ -48,6 +48,14 @@ class SettingsManager {
 
   set githubToken(val: string | undefined) {
     this.config.githubToken = val;
+  }
+
+  get geminiKey() {
+    return this.config.geminiKey;
+  }
+
+  set geminiKey(val: string | undefined) {
+    this.config.geminiKey = val;
   }
 }
 
@@ -266,15 +274,17 @@ async function startServer() {
   app.get("/api/settings", (req, res) => {
     res.json({ 
       baseProjectsDir: settings.baseDir,
-      githubToken: settings.githubToken 
+      githubToken: settings.githubToken,
+      geminiKey: settings.geminiKey
     });
   });
 
   app.post("/api/settings", async (req, res) => {
     try {
-      const { baseProjectsDir, githubToken } = req.body;
+      const { baseProjectsDir, githubToken, geminiKey } = req.body;
       if (baseProjectsDir) settings.baseDir = baseProjectsDir;
       if (githubToken !== undefined) settings.githubToken = githubToken;
+      if (geminiKey !== undefined) settings.geminiKey = geminiKey;
       
       await settings.save();
       res.json({ success: true });

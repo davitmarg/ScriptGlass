@@ -20,11 +20,15 @@ import {
   Loader2,
   Type,
   List,
-  Layout
+  Layout,
+  Sparkles,
+  Copy,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import { useMemo, useCallback } from 'react';
+import { GoogleGenAI } from "@google/genai";
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -85,7 +89,7 @@ export default function App() {
 
   const [isGitHubConnected, setIsGitHubConnected] = useState(false);
   const [syncCommitMessage, setSyncCommitMessage] = useState('');
-  const [settings, setSettings] = useState({ baseProjectsDir: '' });
+  const [settings, setSettings] = useState({ baseProjectsDir: '', geminiKey: '' });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isWorkspacePickerOpen, setIsWorkspacePickerOpen] = useState(false);
   const [workspaceData, setWorkspaceData] = useState({ path: '', type: 'open' as 'open' | 'clone' | 'create', url: '', name: '' });
@@ -96,7 +100,11 @@ export default function App() {
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
-  const [activeRightTab, setActiveRightTab] = useState<'formatting' | 'outline' | 'title'>('formatting');
+  const [activeRightTab, setActiveRightTab] = useState<'formatting' | 'outline' | 'title' | 'ai'>('formatting');
+  const [aiSnippet, setAiSnippet] = useState('');
+  const [aiOptions, setAiOptions] = useState<string[]>([]);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [history, setHistory] = useState<{ blocks: ScriptBlock[]; selection: { blockId: string | null; offset: number } }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -767,7 +775,10 @@ export default function App() {
     try {
       const res = await fetch('/api/settings');
       const data = await res.json();
-      setSettings({ baseProjectsDir: data.baseProjectsDir });
+      setSettings({ 
+        baseProjectsDir: data.baseProjectsDir || '', 
+        geminiKey: data.geminiKey || '' 
+      });
       if (data.githubToken) {
         setGithubToken(data.githubToken);
         setIsGitHubConnected(true);
@@ -1091,6 +1102,75 @@ export default function App() {
         console.warn(`Last session path "${manualPath}" ignored: ${error.message}`);
       }
     }
+  };
+
+  const handleGetAiSuggestions = async () => {
+    if (!aiSnippet.trim()) return;
+    if (!settings.geminiKey) {
+      toast.error("Please add your Gemini API Key in Settings");
+      setIsSettingsOpen(true);
+      return;
+    }
+
+    setIsAiLoading(true);
+    setAiOptions([]);
+
+    try {
+      const trimmedKey = settings.geminiKey.trim();
+      if (!trimmedKey) {
+        toast.error("Please add your Gemini API Key in Settings");
+        setIsSettingsOpen(true);
+        return;
+      }
+
+      const ai = new GoogleGenAI({ apiKey: trimmedKey });
+      const prompt = `You are a professional Hollywood script doctor. 
+Enhance the following screenplay snippet. Provide 3 distinct variations that are better aligned with standard screenwriting conventions, tight dialogue, and evocative action descriptions.
+
+CRITICAL INSTRUCTIONS:
+- Do NOT add scene headings (sluglines), transitions, or any character names if not present in the input.
+- Maintain the EXACT element type. If the input is dialogue, output ONLY enhanced dialogue. If it is action, output ONLY enhanced action.
+- Do NOT add any surrounding context or framing.
+- Return ONLY a valid JSON array of exactly 3 strings.
+
+Snippet:
+"${aiSnippet}"`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+      
+      const rawText = response.text || '[]';
+      // Sanitize response to ensure it's just the JSON array
+      const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+      const text = jsonMatch ? jsonMatch[0] : rawText;
+      
+      try {
+        const parsed = JSON.parse(text);
+        setAiOptions(Array.isArray(parsed) ? parsed : []);
+      } catch (parseError) {
+        console.error("JSON Parsing Error:", parseError, "Raw Text:", rawText);
+        // Fallback: If it's not a JSON array, maybe it's just text?
+        // But we expect JSON. Let's try to extract if it looks like an array.
+        toast.error("AI returned malformed data. Please try again.");
+      }
+    } catch (error: any) {
+      console.error(error);
+      toast.error("Failed to get AI suggestions. Check your API key.");
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    toast.success("Copied to clipboard");
+    setTimeout(() => setCopiedIndex(null), 2000);
   };
 
   const handleUpdateSettings = async () => {
@@ -1743,16 +1823,17 @@ export default function App() {
                 initial={{ width: 0, opacity: 0 }}
                 animate={{ width: 256, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
-                className="glass-panel border-l flex flex-col shrink-0 overflow-hidden"
+                className="glass-panel border-l flex flex-col shrink-0 overflow-hidden h-full"
               >
                 <div className="p-4 border-b border-indigo-100/20 flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-900/40">
                     {activeRightTab === 'formatting' ? 'Formatting' : 
-                     activeRightTab === 'outline' ? 'Scene Navigator' : 'Title Page'}
+                     activeRightTab === 'outline' ? 'Scene Navigator' : 
+                     activeRightTab === 'ai' ? 'AI Enhance' : 'Title Page'}
                   </span>
                 </div>
                 
-                <ScrollArea className="flex-1">
+                <ScrollArea className="flex-1 text-indigo-950 overflow-hidden min-h-0">
                   {activeRightTab === 'formatting' ? (
                     <div className="p-4 space-y-6">
                       <div className="space-y-2">
@@ -1785,6 +1866,52 @@ export default function App() {
                               {navigator.platform.includes('Mac') ? '⌘' : 'Alt'}+{item.key}
                             </span>
                           </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : activeRightTab === 'ai' ? (
+                    <div className="p-4 space-y-4">
+                      <div className="text-[11px] text-indigo-900/40 font-medium mb-1">AI ENHANCE</div>
+                      <div className="space-y-3">
+                        <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Script Snippet</Label>
+                        <textarea 
+                          value={aiSnippet}
+                          onChange={(e) => setAiSnippet(e.target.value)}
+                          placeholder="Paste a dialogue or action line here..."
+                          className="w-full h-32 bg-white/50 border border-indigo-100 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none font-mono"
+                        />
+                        <Button 
+                          className="w-full h-9 bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/20"
+                          onClick={handleGetAiSuggestions}
+                          disabled={isAiLoading || !aiSnippet.trim()}
+                        >
+                          {isAiLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5 mr-2" />
+                              Enhance
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      <div className="space-y-4 pt-2">
+                        {aiOptions.map((opt, i) => (
+                          <div key={i} className="group relative bg-white/40 border border-indigo-50 rounded-xl p-3 hover:bg-white/60 transition-all">
+                            <div className="text-[9px] text-indigo-900/40 uppercase font-black mb-1">Option {i + 1}</div>
+                            <p className="text-xs leading-relaxed italic pr-8 whitespace-pre-wrap">{opt}</p>
+                            <button 
+                              onClick={() => copyToClipboard(opt, i)}
+                              className="absolute top-3 right-3 p-1.5 rounded-md hover:bg-indigo-100 text-indigo-400 hover:text-indigo-600 transition-colors"
+                            >
+                              {copiedIndex === i ? (
+                                <Check className="w-3.5 h-3.5 text-green-500" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -1933,6 +2060,23 @@ export default function App() {
               </TooltipTrigger>
               <TooltipContent side="left">Title Page</TooltipContent>
             </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger 
+                className={`transition-colors hover:text-indigo-600 ${isRightSidebarOpen && activeRightTab === 'ai' ? 'text-indigo-600' : 'text-indigo-400/50'}`}
+                onClick={() => {
+                  if (isRightSidebarOpen && activeRightTab === 'ai') {
+                    setIsRightSidebarOpen(false);
+                  } else {
+                    setIsRightSidebarOpen(true);
+                    setActiveRightTab('ai');
+                  }
+                }}
+              >
+                <Sparkles className="w-5 h-5" />
+              </TooltipTrigger>
+              <TooltipContent side="left">AI Enhance</TooltipContent>
+            </Tooltip>
           </aside>
         </div>
 
@@ -2068,8 +2212,18 @@ export default function App() {
                   onChange={(e) => setSettings({ ...settings, baseProjectsDir: e.target.value })}
                   placeholder="/path/to/your/projects"
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="geminiKey">Gemini API Key</Label>
+                <Input 
+                  id="geminiKey" 
+                  type="password"
+                  value={settings.geminiKey}
+                  onChange={(e) => setSettings({ ...settings, geminiKey: e.target.value })}
+                  placeholder="Paste your API key here"
+                />
                 <p className="text-[10px] text-gray-500">
-                  Projects will be stored and searched in this directory.
+                  Required for AI Enhance features. Your key is stored locally in your browser.
                 </p>
               </div>
             </div>
