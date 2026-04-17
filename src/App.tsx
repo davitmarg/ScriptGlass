@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileText, 
   Folder, 
+  FolderPlus,
   Terminal as TerminalIcon, 
   GitBranch, 
   CloudUpload, 
@@ -83,7 +84,7 @@ export default function App() {
   const [settings, setSettings] = useState({ baseProjectsDir: '' });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isWorkspacePickerOpen, setIsWorkspacePickerOpen] = useState(false);
-  const [workspaceData, setWorkspaceData] = useState({ path: '', type: 'open', url: '' });
+  const [workspaceData, setWorkspaceData] = useState({ path: '', type: 'open' as 'open' | 'clone' | 'create', url: '', name: '' });
   const [isNewScriptOpen, setIsNewScriptOpen] = useState(false);
   const [newScriptName, setNewScriptName] = useState('');
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -810,11 +811,19 @@ export default function App() {
 
   const handleOpenWorkspace = async () => {
     try {
+      let folderPath = workspaceData.path;
+      
+      if (workspaceData.type === 'create') {
+        const base = settings.baseProjectsDir || '';
+        const name = workspaceData.name || 'Untitled';
+        folderPath = base.endsWith('/') || base.endsWith('\\') ? `${base}${name}` : `${base}/${name}`;
+      }
+
       const res = await fetch('/api/workspace/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          folderPath: workspaceData.path,
+          folderPath: folderPath,
           type: workspaceData.type,
           url: workspaceData.url 
         }),
@@ -823,10 +832,13 @@ export default function App() {
       if (data.error) throw new Error(data.error);
       setActivePath(data.path);
       setIsWorkspacePickerOpen(false);
-      setWorkspaceData({ path: '', type: 'open', url: '' });
-      toast.success(workspaceData.type === 'clone' ? 'Repository cloned and opened' : 'Folder opened');
+      setWorkspaceData({ path: '', type: 'open', url: '', name: '' });
+      toast.success(
+        workspaceData.type === 'clone' ? 'Repository cloned and opened' : 
+        workspaceData.type === 'create' ? 'Folder created and opened' : 'Folder opened'
+      );
     } catch (error: any) {
-      toast.error(`Failed to open folder: ${error.message}`);
+      toast.error(`Failed to handle workspace: ${error.message}`);
     }
   };
 
@@ -1782,38 +1794,65 @@ export default function App() {
         <Dialog open={isWorkspacePickerOpen} onOpenChange={setIsWorkspacePickerOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Open Workspace</DialogTitle>
+              <DialogTitle>Workspace Management</DialogTitle>
               <DialogDescription>
-                Open an existing folder or clone a Git repository.
+                Open an existing folder, create a new one, or clone a repository.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="flex gap-2 p-1 bg-[#ebebeb] rounded-md">
                 <Button 
                   variant={workspaceData.type === 'open' ? 'secondary' : 'ghost'} 
-                  className="flex-1 h-8 text-xs"
+                  className="flex-1 h-8 text-xs px-2"
                   onClick={() => setWorkspaceData({ ...workspaceData, type: 'open' })}
                 >
-                  Open Folder
+                  <Folder className="w-3 h-3 mr-1.5" />
+                  Open
+                </Button>
+                <Button 
+                  variant={workspaceData.type === 'create' ? 'secondary' : 'ghost'} 
+                  className="flex-1 h-8 text-xs px-2"
+                  onClick={() => setWorkspaceData({ ...workspaceData, type: 'create' })}
+                >
+                  <FolderPlus className="w-3 h-3 mr-1.5" />
+                  Create
                 </Button>
                 <Button 
                   variant={workspaceData.type === 'clone' ? 'secondary' : 'ghost'} 
-                  className="flex-1 h-8 text-xs"
+                  className="flex-1 h-8 text-xs px-2"
                   onClick={() => setWorkspaceData({ ...workspaceData, type: 'clone' })}
                 >
-                  Clone Repo
+                  <CloudUpload className="w-3 h-3 mr-1.5" />
+                  Clone
                 </Button>
               </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="workspacePath">Folder Path</Label>
-                <Input 
-                  id="workspacePath" 
-                  placeholder={settings.baseProjectsDir || "/path/to/folder"}
-                  value={workspaceData.path}
-                  onChange={(e) => setWorkspaceData({ ...workspaceData, path: e.target.value })}
-                />
-              </div>
+              {workspaceData.type === 'create' ? (
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="folderName">New Folder Name</Label>
+                    <Input 
+                      id="folderName" 
+                      placeholder="e.g. my-new-screenplay"
+                      value={workspaceData.name}
+                      onChange={(e) => setWorkspaceData({ ...workspaceData, name: e.target.value })}
+                    />
+                    <p className="text-[10px] text-gray-500">
+                      Will be created in: {settings.baseProjectsDir || 'default location'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  <Label htmlFor="workspacePath">{workspaceData.type === 'clone' ? 'Target Folder Path' : 'Absolute Folder Path'}</Label>
+                  <Input 
+                    id="workspacePath" 
+                    placeholder={settings.baseProjectsDir || "/path/to/folder"}
+                    value={workspaceData.path}
+                    onChange={(e) => setWorkspaceData({ ...workspaceData, path: e.target.value })}
+                  />
+                </div>
+              )}
 
               {workspaceData.type === 'clone' && (
                 <div className="grid gap-2">
@@ -1830,7 +1869,8 @@ export default function App() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsWorkspacePickerOpen(false)}>Cancel</Button>
               <Button onClick={handleOpenWorkspace}>
-                {workspaceData.type === 'clone' ? 'Clone & Open' : 'Open Folder'}
+                {workspaceData.type === 'clone' ? 'Clone & Open' : 
+                 workspaceData.type === 'create' ? 'Create & Open' : 'Open Folder'}
               </Button>
             </DialogFooter>
           </DialogContent>
