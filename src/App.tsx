@@ -142,7 +142,9 @@ export default function App() {
 
   const suggestions = useMemo(() => {
     const characters = new Set<string>();
-    const locations = new Set<string>();
+    const locations = new Set<string>(['INT. ', 'EXT. ', 'INT./EXT. ', 'EST. ']);
+    const transitions = new Set<string>(['FADE IN:', 'CUT TO:', 'FADE OUT:', 'DISSOLVE TO:', 'MATCH CUT TO:', 'SMASH CUT TO:']);
+    const shots = new Set<string>(['ANGLE ON', 'CLOSE UP', 'EXTREME CLOSE UP', 'WIDE SHOT', 'POV', 'TRACKING SHOT', 'AERIAL SHOT']);
 
     blocks.forEach(block => {
       if (block.type === 'character') {
@@ -153,11 +155,21 @@ export default function App() {
         const loc = block.content.trim().toUpperCase();
         if (loc) locations.add(loc);
       }
+      if (block.type === 'transition') {
+        const trans = block.content.trim().toUpperCase();
+        if (trans) transitions.add(trans);
+      }
+      if (block.type === 'shot') {
+        const s = block.content.trim().toUpperCase();
+        if (s) shots.add(s);
+      }
     });
 
     return {
       characters: Array.from(characters).sort(),
-      locations: Array.from(locations).sort()
+      locations: Array.from(locations).sort(),
+      transitions: Array.from(transitions).sort(),
+      shots: Array.from(shots).sort()
     };
   }, [blocks]);
 
@@ -744,8 +756,42 @@ export default function App() {
         if (type) setActiveType(type || 'general');
         setActiveLineRect((current as HTMLElement).getBoundingClientRect());
 
-        if (type === 'character' || type === 'scene') {
-          const list = type === 'character' ? suggestions.characters : suggestions.locations;
+        if (type === 'character' || type === 'scene' || type === 'transition' || type === 'shot') {
+          let list: string[] = [];
+          if (type === 'character') list = suggestions.characters;
+          else if (type === 'scene') list = suggestions.locations;
+          else if (type === 'transition') list = suggestions.transitions;
+          else if (type === 'shot') list = suggestions.shots;
+
+          if (type === 'scene') {
+            const defaultTimes = ['DAY', 'NIGHT', 'MOMENTS LATER', 'CONTINUOUS', 'AFTERNOON', 'EVENING', 'LATER'];
+            
+            // Check for hyphen to suggest times of day specifically
+            const lastHyphenIndex = text.lastIndexOf(' - ');
+            if (lastHyphenIndex !== -1) {
+              const base = text.substring(0, lastHyphenIndex + 3);
+              const suffixSearch = text.substring(lastHyphenIndex + 3).toUpperCase();
+              const filteredTimes = defaultTimes
+                .filter(t => t.startsWith(suffixSearch) && t !== suffixSearch)
+                .map(t => base + t);
+              
+              if (filteredTimes.length > 0) {
+                setAutocompleteList(filteredTimes);
+                setShowAutocomplete(true);
+                setAutocompleteIndex(0);
+                return;
+              }
+            }
+
+            if (text.length === 0) {
+              const defaultIntros = ['INT. ', 'EXT. ', 'INT./EXT. ', 'EST. '];
+              setAutocompleteList(defaultIntros);
+              setShowAutocomplete(true);
+              setAutocompleteIndex(0);
+              return;
+            }
+          }
+
           const filtered = list.filter(s => s.startsWith(text.toUpperCase()) && s !== text.toUpperCase());
           if (filtered.length > 0 && text.length > 0) {
             setAutocompleteList(filtered);
