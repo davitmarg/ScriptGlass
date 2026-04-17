@@ -81,20 +81,20 @@
   scrollbar-width: none;
 }
 
-/* Screenplay Formatting Classes */
-.script-scene { @apply uppercase font-bold text-left mb-0; }
-.script-action { @apply text-left mb-0; }
-.script-character { @apply uppercase font-bold text-center w-[60%] mx-auto mb-0; }
-.script-parenthetical { @apply italic text-center w-[40%] mx-auto mb-0 text-sm; }
-.script-dialogue { @apply text-center w-[75%] mx-auto mb-0; }
-.script-transition { @apply uppercase text-right mb-0; }
-.script-shot { @apply uppercase font-bold text-left mb-0; }
-.script-general { @apply text-left mb-0; }
-
 .script-editor-textarea, .script-line {
-  @apply w-full bg-transparent border-none outline-none resize-none p-0 m-0 font-mono text-[14px] leading-none text-indigo-950 placeholder:text-indigo-200/30;
+  @apply w-full bg-transparent border-none outline-none resize-none p-0 m-0 font-mono text-[14px] leading-relaxed text-indigo-950 placeholder:text-indigo-200/30;
 }
 
 .script-line {
-  @apply min-h-[1.2em];
+  @apply min-h-[1.5em];
 }
+
+/* Screenplay Formatting Classes - defined AFTER base for priority */
+.script-scene { @apply uppercase font-bold text-left mt-8 mb-4; }
+.script-action { @apply text-left mb-6; }
+.script-character { @apply uppercase font-bold text-center w-[60%] mx-auto mb-0 mt-6; }
+.script-parenthetical { @apply italic text-center w-[40%] mx-auto mb-0 text-sm; }
+.script-dialogue { @apply text-center w-[75%] mx-auto mb-6; }
+.script-transition { @apply uppercase text-right mt-6 mb-6; }
+.script-shot { @apply uppercase font-bold text-left mt-6 mb-6; }
+.script-general { @apply text-left mb-4; }
