@@ -608,69 +608,63 @@ export default function App() {
   };
 
   const fountainToBlocks = (fountain: string): ScriptBlock[] => {
-    if (!fountain.trim()) return [{ id: Math.random().toString(36).substr(2, 9), type: 'scene', content: '' }];
+    if (!fountain || fountain.trim() === '') {
+      return [{ id: Math.random().toString(36).substr(2, 9), type: 'action', content: '' }];
+    }
     
-    // Split by double newlines to get potential blocks
-    const rawBlocks = fountain.split(/\n\n+/);
+    // Normalize newlines and split by single newline to preserve ALL vertical space
+    const lines = fountain.replace(/\r\n/g, '\n').split('\n');
     const result: ScriptBlock[] = [];
 
-    rawBlocks.forEach((raw) => {
-      const lines = raw.split('\n').map(l => l.trim()).filter(l => l);
-      if (lines.length === 0) return;
+    lines.forEach((line, i) => {
+      let type: BlockType = 'action';
+      let content = line.trim();
+      const rawContent = line; // Keep raw for now if needed, but trim is usually better for elements
 
-      lines.forEach((line, i) => {
-        let type: BlockType = 'action';
-        let content = line;
-
-        if (line.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(line)) {
-          type = 'scene';
-          content = line.replace(/^\.\s*/, '');
-        } else if (line.startsWith('>') && !line.endsWith('<')) {
-          type = 'transition';
-          content = line.replace(/^>\s*/, '');
-        } else if (line.startsWith('!')) {
-          type = 'shot';
-          content = line.replace(/^!\s*/, '');
-        } else if (line.startsWith('(') && line.endsWith(')')) {
-          type = 'parenthetical';
-        } else if (line === line.toUpperCase() && i === 0) {
-          // Heuristic: Uppercase line at start of a block is likely a character
-          type = 'character';
-        } else if (result.length > 0 && (result[result.length - 1].type === 'character' || result[result.length - 1].type === 'parenthetical')) {
+      // Basic element detection
+      if (content.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(content)) {
+        type = 'scene';
+        content = content.replace(/^\.\s*/, '');
+      } else if (content.startsWith('>') && !content.endsWith('<')) {
+        type = 'transition';
+        content = content.replace(/^>\s*/, '');
+      } else if (content.startsWith('!')) {
+        type = 'shot';
+        content = content.replace(/^!\s*/, '');
+      } else if (content.startsWith('(') && content.endsWith(')')) {
+        type = 'parenthetical';
+      } else if (content === content.toUpperCase() && content.length > 0 && !/^\d+$/.test(content) && !/^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(content)) {
+        // Heuristic: Uppercase line is likely a character
+        type = 'character';
+      } else if (result.length > 0) {
+        const prevType = result[result.length - 1].type;
+        if ((prevType === 'character' || prevType === 'parenthetical') && content.length > 0) {
           type = 'dialogue';
         }
+      }
 
-        result.push({ id: Math.random().toString(36).substr(2, 9), type, content });
-      });
+      // If it's an empty line, it's just an action line with no content (spacing)
+      if (content === '') {
+        type = 'action';
+      }
+
+      result.push({ id: Math.random().toString(36).substr(2, 9), type, content });
     });
 
-    return result.length > 0 ? result : [{ id: Math.random().toString(36).substr(2, 9), type: 'action', content: '' }];
+    return result;
   };
 
   const blocksToFountain = (blocks: ScriptBlock[]): string => {
-    let fountain = '';
-    blocks.forEach((block, index) => {
+    return blocks.map((block) => {
       let prefix = '';
-      let content = block.content;
-
       switch (block.type) {
         case 'scene': prefix = '. '; break;
         case 'transition': prefix = '> '; break;
         case 'shot': prefix = '! '; break;
+        default: prefix = '';
       }
-
-      const prevBlock = blocks[index - 1];
-      const needsDoubleNewline = prevBlock && (
-        (block.type === 'scene') || 
-        (block.type === 'character') || 
-        (block.type === 'action') ||
-        (block.type === 'transition') ||
-        (block.type === 'shot')
-      );
-
-      fountain += (needsDoubleNewline ? '\n\n' : (index > 0 ? '\n' : '')) + prefix + content;
-    });
-    return fountain;
+      return prefix + block.content;
+    }).join('\n');
   };
 
   const updateBlock = (id: string, updates: Partial<ScriptBlock>) => {
