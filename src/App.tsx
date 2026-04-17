@@ -85,6 +85,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isWorkspacePickerOpen, setIsWorkspacePickerOpen] = useState(false);
   const [workspaceData, setWorkspaceData] = useState({ path: '', type: 'open' as 'open' | 'clone' | 'create', url: '', name: '' });
+  const [recentFolders, setRecentFolders] = useState<string[]>([]);
   const [isNewScriptOpen, setIsNewScriptOpen] = useState(false);
   const [newScriptName, setNewScriptName] = useState('');
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -92,11 +93,13 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState<'formatting' | 'outline' | 'title'>('formatting');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [history, setHistory] = useState<{ blocks: ScriptBlock[]; selection: { blockId: string | null; offset: number } }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [terminalOutput, setTerminalOutput] = useState<TerminalOutput[]>([]);
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalMode, setTerminalMode] = useState<'git' | 'interactive'>('git');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const [autocompleteList, setAutocompleteList] = useState<string[]>([]);
@@ -111,6 +114,27 @@ export default function App() {
       terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
     }
   }, [terminalOutput]);
+
+  // Load last session and recent history
+  useEffect(() => {
+    const lastPath = localStorage.getItem('sg_last_path');
+    const recents = JSON.parse(localStorage.getItem('sg_recent_folders') || '[]');
+    setRecentFolders(recents);
+
+    if (lastPath) {
+      // Small timeout to allow basic init
+      setTimeout(() => {
+        handleOpenWorkspace(lastPath);
+      }, 500);
+    }
+  }, []);
+
+  const addToRecentFolders = (path: string) => {
+    const recents = JSON.parse(localStorage.getItem('sg_recent_folders') || '[]');
+    const filtered = [path, ...recents.filter((p: string) => p !== path)].slice(0, 3);
+    setRecentFolders(filtered);
+    localStorage.setItem('sg_recent_folders', JSON.stringify(filtered));
+  };
 
   const executeTerminalCommand = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -803,6 +827,49 @@ export default function App() {
         } else {
           setShowAutocomplete(false);
         }
+
+        // Calculate current page based on index of current line
+        const lineIndex = blocks.findIndex(b => b.id === id);
+        if (lineIndex !== -1) {
+          let lines = 0;
+          let pages = 1;
+          const maxLinesPerPage = 54;
+          
+          try {
+            const doc = new jsPDF({ unit: 'in', format: 'letter' });
+            doc.setFont('courier', 'normal');
+            doc.setFontSize(12);
+
+            for (let i = 0; i <= lineIndex; i++) {
+              const block = blocks[i];
+              const bText = block.content.trim();
+              if (!bText && i < lineIndex) continue;
+              
+              let width = 6.0;
+              if (block.type === 'character') width = 3.8;
+              else if (block.type === 'parenthetical') width = 2.0;
+              else if (block.type === 'dialogue') width = 3.5;
+              else if (block.type === 'transition') width = 2.0;
+              
+              const splitText = doc.splitTextToSize(block.content, width);
+              const blockLines = splitText.length;
+              
+              let spacing = 1;
+              if (i === 0) spacing = 0;
+              else if (block.type === 'dialogue' || block.type === 'parenthetical') spacing = 0;
+              else if (blocks[i-1].type === 'character' && (block.type === 'parenthetical' || block.type === 'dialogue')) spacing = 0;
+              else if (blocks[i-1].type === 'parenthetical' && block.type === 'dialogue') spacing = 0;
+              
+              if (lines + spacing + blockLines > maxLinesPerPage) {
+                pages++;
+                lines = blockLines;
+              } else {
+                lines += spacing + blockLines;
+              }
+            }
+            setCurrentPage(pages);
+          } catch (e) {}
+        }
         return;
       }
       current = current.parentElement;
@@ -855,11 +922,17 @@ export default function App() {
     }
   };
 
-  const handleOpenWorkspace = async () => {
+  const handleOpenWorkspace = async (manualPath?: string | React.MouseEvent | React.KeyboardEvent) => {
     try {
-      let folderPath = workspaceData.path;
+      const isManualPath = typeof manualPath === 'string';
+      let folderPath = isManualPath ? manualPath : workspaceData.path;
       
-      if (workspaceData.type === 'create') {
+      if (!folderPath) {
+        if (!isManualPath) toast.error('Please provide a folder path');
+        return;
+      }
+
+      if (!isManualPath && workspaceData.type === 'create') {
         const base = settings.baseProjectsDir || '';
         const name = workspaceData.name || 'Untitled';
         folderPath = base.endsWith('/') || base.endsWith('\\') ? `${base}${name}` : `${base}/${name}`;
@@ -870,21 +943,33 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           folderPath: folderPath,
-          type: workspaceData.type,
+          type: isManualPath ? 'open' : workspaceData.type,
           url: workspaceData.url 
         }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setActivePath(data.path);
+      localStorage.setItem('sg_last_path', data.path);
+      addToRecentFolders(data.path);
       setIsWorkspacePickerOpen(false);
       setWorkspaceData({ path: '', type: 'open', url: '', name: '' });
-      toast.success(
-        workspaceData.type === 'clone' ? 'Repository cloned and opened' : 
-        workspaceData.type === 'create' ? 'Folder created and opened' : 'Folder opened'
-      );
+      
+      // If we are opening a workspace, also try to fetch files
+      fetchFiles(data.path);
+
+      if (!isManualPath) {
+        toast.success(
+          workspaceData.type === 'clone' ? 'Repository cloned and opened' : 
+          workspaceData.type === 'create' ? 'Folder created and opened' : 'Folder opened'
+        );
+      }
     } catch (error: any) {
-      toast.error(`Failed to handle workspace: ${error.message}`);
+      if (typeof manualPath !== 'string') {
+        toast.error(`Failed to handle workspace: ${error.message}`);
+      } else {
+        console.warn(`Last session path "${manualPath}" ignored: ${error.message}`);
+      }
     }
   };
 
@@ -917,7 +1002,9 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: fountainContent }),
       });
+      setHasUnsavedChanges(false);
       toast.success('Saved locally');
+      if (activePath) fetchGitStatus(activePath);
     } catch (error) {
       toast.error('Failed to save');
     } finally {
@@ -1036,8 +1123,23 @@ export default function App() {
             <div className="w-3 h-3 rounded-full bg-amber-400/80" />
             <div className="w-3 h-3 rounded-full bg-emerald-400/80" />
           </div>
-          <div className="text-[12px] font-semibold text-indigo-900/60 uppercase tracking-wider flex-1">
-            ScriptGlass {activePath && `— ${getBasename(activePath)}`} — {activeFile || 'Untitled'}
+          <div className="text-[12px] font-semibold text-indigo-900/60 uppercase tracking-wider flex-1 flex items-center gap-2">
+            <span>ScriptGlass</span>
+            {activePath && (
+              <>
+                <span className="opacity-40">/</span>
+                <span className="text-indigo-950/80">{getBasename(activePath)}</span>
+              </>
+            )}
+            {activeFile && (
+              <>
+                <span className="opacity-40">/</span>
+                <span className="text-indigo-950 font-bold flex items-center gap-1">
+                  {activeFile}
+                  {hasUnsavedChanges && <span className="text-indigo-600 drop-shadow-sm">*</span>}
+                </span>
+              </>
+            )}
           </div>
           <Button 
             variant="ghost" 
@@ -1341,6 +1443,7 @@ export default function App() {
                   onInput={() => {
                     const newBlocks = updateFormatting();
                     saveToHistory(newBlocks);
+                    setHasUnsavedChanges(true);
                     updateActiveTypeFromSelection();
                   }}
                   onPaste={handlePaste}
@@ -1551,26 +1654,6 @@ export default function App() {
                             </span>
                           </button>
                         ))}
-                      </div>
-
-                      <Separator className="bg-indigo-100/20" />
-
-                      <div className="space-y-2">
-                        <div className="text-[11px] text-indigo-900/40 font-medium mb-3">STATS</div>
-                        <div className="px-3 py-2 rounded-lg bg-indigo-50/30 space-y-1">
-                          <div className="flex justify-between text-xs">
-                            <span className="text-indigo-900/60">Pages</span>
-                            <span className="font-mono text-indigo-950">{pageCount}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-indigo-900/60">Words</span>
-                            <span className="font-mono text-indigo-950">{wordCount}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-indigo-900/60">Zoom</span>
-                            <span className="font-mono text-indigo-950">{Math.round(zoom * 100)}%</span>
-                          </div>
-                        </div>
                       </div>
                     </div>
                   ) : activeRightTab === 'outline' ? (
@@ -1799,9 +1882,14 @@ export default function App() {
           <div className="flex items-center gap-5">
             <div className="flex items-center gap-1.5 text-indigo-900 font-medium">
               <GitBranch className="w-3.5 h-3.5" />
-              <span>{gitStatus?.branch || 'main'}</span>
+              <span>
+                {gitStatus?.branch || 'main'}
+                {gitStatus && (gitStatus.status.modified.length > 0 || gitStatus.status.not_added.length > 0) && (
+                  <span className="ml-1 text-indigo-600 font-bold" title="Uncommitted changes">*</span>
+                )}
+              </span>
             </div>
-            <span>Page {pageCount} of {pageCount}</span>
+            <span>Page {currentPage} of {pageCount}</span>
             <span>{wordCount} words</span>
           </div>
           
@@ -1897,14 +1985,36 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div className="grid gap-2">
-                  <Label htmlFor="workspacePath">{workspaceData.type === 'clone' ? 'Target Folder Path' : 'Absolute Folder Path'}</Label>
-                  <Input 
-                    id="workspacePath" 
-                    placeholder={settings.baseProjectsDir || "/path/to/folder"}
-                    value={workspaceData.path}
-                    onChange={(e) => setWorkspaceData({ ...workspaceData, path: e.target.value })}
-                  />
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="workspacePath">{workspaceData.type === 'clone' ? 'Target Folder Path' : 'Absolute Folder Path'}</Label>
+                    <Input 
+                      id="workspacePath" 
+                      placeholder={settings.baseProjectsDir || "/path/to/folder"}
+                      value={workspaceData.path}
+                      onChange={(e) => setWorkspaceData({ ...workspaceData, path: e.target.value })}
+                    />
+                  </div>
+
+                  {recentFolders.length > 0 && workspaceData.type === 'open' && (
+                    <div className="grid gap-2">
+                      <Label className="text-[10px] text-gray-500 uppercase tracking-wider">Recently Used</Label>
+                      <div className="flex flex-col gap-1">
+                        {recentFolders.map((p) => (
+                          <button
+                            key={p}
+                            onClick={() => setWorkspaceData({ ...workspaceData, path: p })}
+                            className="text-left text-xs px-2 py-1.5 rounded hover:bg-gray-100 flex items-center gap-2 group overflow-hidden"
+                            title={p}
+                          >
+                            <Clock className="w-3 h-3 text-gray-400" />
+                            <span className="truncate flex-1">{getBasename(p)}</span>
+                            <span className="text-[9px] text-gray-400 opacity-0 group-hover:opacity-100 truncate">{p}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
