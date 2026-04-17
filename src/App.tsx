@@ -1871,7 +1871,6 @@ Snippet:
                     </div>
                   ) : activeRightTab === 'ai' ? (
                     <div className="p-4 space-y-4">
-                      <div className="text-[11px] text-indigo-900/40 font-medium mb-1">AI ENHANCE</div>
                       <div className="space-y-3">
                         <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Script Snippet</Label>
                         <textarea 
@@ -1917,7 +1916,6 @@ Snippet:
                     </div>
                   ) : activeRightTab === 'outline' ? (
                     <div className="p-4">
-                      <div className="text-[11px] text-indigo-900/40 font-medium mb-3">OUTLINE</div>
                       <div className="space-y-1">
                         {blocks.filter(b => b.type === 'scene').map((block, idx) => (
                           <button
@@ -1952,8 +1950,6 @@ Snippet:
                     </div>
                   ) : (
                     <div className="p-4 space-y-4">
-                      <div className="text-[11px] text-indigo-900/40 font-medium mb-1">TITLE PAGE</div>
-                      
                       <div className="space-y-3">
                         <div className="space-y-1">
                           <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Title</Label>
