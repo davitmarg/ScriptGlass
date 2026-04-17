@@ -16,6 +16,8 @@ import {
   Globe,
   Link as LinkIcon,
   Download,
+  RefreshCw,
+  Loader2,
   Type,
   List,
   Layout
@@ -70,6 +72,9 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [githubToken, setGithubToken] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(false);
+  const [isEditorReady, setIsEditorReady] = useState(false);
+  const [projectKey, setProjectKey] = useState(0);
   const [titlePage, setTitlePage] = useState({
     title: '',
     credit: 'written by',
@@ -100,6 +105,7 @@ export default function App() {
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalMode, setTerminalMode] = useState<'git' | 'interactive'>('git');
   const [currentPage, setCurrentPage] = useState(1);
+  const currentEditorFile = useRef<string | null>(null);
 
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const [autocompleteList, setAutocompleteList] = useState<string[]>([]);
@@ -222,6 +228,12 @@ export default function App() {
         else if (block.type === 'dialogue') width = 3.5;
         else if (block.type === 'transition') width = 2.0;
         
+        if (block.type === 'character' || block.type === 'scene') {
+          doc.setFont('courier', 'bold');
+        } else {
+          doc.setFont('courier', 'normal');
+        }
+        
         const splitText = doc.splitTextToSize(block.content, width);
         const blockLines = splitText.length;
         
@@ -302,10 +314,28 @@ export default function App() {
         let width = 6.0;
         let align = 'left';
         
-        if (block.type === 'character') { x = 3.7; width = 3.8; }
-        else if (block.type === 'parenthetical') { x = 3.1; width = 2.0; }
-        else if (block.type === 'dialogue') { x = 2.5; width = 3.5; }
-        else if (block.type === 'transition') { x = 5.5; width = 2.0; align = 'right'; }
+        if (block.type === 'character') { 
+          x = 3.7; 
+          width = 3.8; 
+          doc.setFont('courier', 'bold');
+        } else if (block.type === 'scene') {
+          doc.setFont('courier', 'bold');
+        } else if (block.type === 'parenthetical') { 
+          x = 3.1; 
+          width = 2.0; 
+          doc.setFont('courier', 'normal');
+        } else if (block.type === 'dialogue') { 
+          x = 2.5; 
+          width = 3.5; 
+          doc.setFont('courier', 'normal');
+        } else if (block.type === 'transition') { 
+          x = 5.5; 
+          width = 2.0; 
+          align = 'right'; 
+          doc.setFont('courier', 'normal');
+        } else {
+          doc.setFont('courier', 'normal');
+        }
         
         const splitText = doc.splitTextToSize(block.content, width);
         const blockHeight = splitText.length * lineHeight;
@@ -402,30 +432,15 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeFile && editorRef.current) {
-      // Only initial load if editor is empty
-      if (editorRef.current.children.length === 0 && blocks.length > 0) {
+    if (activeFile && editorRef.current && blocks.length > 0) {
+      // Periodic safety check: if the editor is empty but we have blocks, sync them.
+      // Most syncing now happens DIRECTLY in fetchFileContent for speed and reliability.
+      if (editorRef.current.children.length === 0) {
         syncEditorFromBlocks(blocks);
-        
-        // Focus first line
-        setTimeout(() => {
-          const el = editorRef.current?.firstChild as HTMLElement;
-          if (el) {
-            el.focus();
-            const range = document.createRange();
-            const sel = window.getSelection();
-            if (sel) {
-              range.selectNodeContents(el);
-              range.collapse(false);
-              sel.removeAllRanges();
-              sel.addRange(range);
-            }
-            setActiveBlockId(el.id);
-            const type = el.getAttribute('data-type') as BlockType;
-            if (type) setActiveType(type);
-          }
-        }, 100);
       }
+    } else if (!activeFile && editorRef.current) {
+      editorRef.current.innerHTML = '';
+      currentEditorFile.current = null;
     }
   }, [activeFile, blocks]);
 
@@ -714,6 +729,9 @@ export default function App() {
   useEffect(() => {
     setActiveFile(null);
     setBlocks([]);
+    setIsEditorReady(false);
+    if (editorRef.current) editorRef.current.innerHTML = '';
+    currentEditorFile.current = null;
     setHistory([]);
     setHistoryIndex(-1);
     setTitlePage({
@@ -725,18 +743,21 @@ export default function App() {
       contact: ''
     });
     if (activePath) {
+      setIsInitialLoading(true);
       fetchFiles(activePath);
       fetchGitStatus(activePath);
     } else {
       setFiles([]);
+      setIsInitialLoading(false);
     }
-  }, [activePath]);
+  }, [activePath, projectKey]);
 
   useEffect(() => {
     if (activePath && activeFile) {
       fetchFileContent(activePath, activeFile);
+      setIsEditorReady(false);
     }
-  }, [activePath, activeFile]);
+  }, [activePath, activeFile, projectKey]);
 
   const handleAutocompleteSelect = (value: string) => {
     const sel = window.getSelection();
@@ -887,8 +908,15 @@ export default function App() {
       const res = await fetch(`/api/workspace/${encodePath(absPath)}/files`);
       const data = await res.json();
       setFiles(data);
-      if (data.length > 0 && !activeFile) {
-        setActiveFile(data[0]);
+      if (data.length > 0) {
+        // If current active file is not in the new list, or no active file, open the first one
+        if (!activeFile || !data.includes(activeFile)) {
+          setActiveFile(data[0]);
+        }
+      } else {
+        setActiveFile(null);
+        setBlocks([]);
+        setIsInitialLoading(false);
       }
     } catch (error) {
       toast.error('Failed to fetch files');
@@ -900,15 +928,44 @@ export default function App() {
       const res = await fetch(`/api/workspace/${encodePath(absPath)}/files/${filename}`);
       const data = await res.json();
       const loadedBlocks = fountainToBlocks(data.content || '');
+      
+      // Update state
       setBlocks(loadedBlocks);
       setHistory([{ blocks: JSON.parse(JSON.stringify(loadedBlocks)), selection: { blockId: loadedBlocks[0]?.id || null, offset: 0 } }]);
       setHistoryIndex(0);
       setActiveBlockId(loadedBlocks[0]?.id || null);
       if (loadedBlocks[0]) setActiveType(loadedBlocks[0].type);
+      
+      // CRITICAL: Direct DOM sync. Don't wait for useEffect.
+      // This ensures the editor is populated the moment the data arrives.
+      if (editorRef.current) {
+        syncEditorFromBlocks(loadedBlocks);
+        currentEditorFile.current = filename;
+        
+        // Auto-focus first line
+        setTimeout(() => {
+          const el = editorRef.current?.firstChild as HTMLElement;
+          if (el) {
+            el.focus();
+            const range = document.createRange();
+            const sel = window.getSelection();
+            if (sel) {
+              range.selectNodeContents(el);
+              range.collapse(false);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          }
+        }, 50);
+      }
+
+      setIsInitialLoading(false);
+      setIsEditorReady(true);
     } catch (error) {
       toast.error('Failed to fetch file content');
       const initialBlocks = [{ id: Math.random().toString(36).substr(2, 9), type: 'action' as BlockType, content: '' }];
       setBlocks(initialBlocks);
+      setIsInitialLoading(false);
     }
   };
 
@@ -927,15 +984,25 @@ export default function App() {
       const isManualPath = typeof manualPath === 'string';
       let folderPath = isManualPath ? manualPath : workspaceData.path;
       
+      if (!isManualPath) {
+        const base = settings.baseProjectsDir || '';
+        if (workspaceData.type === 'create') {
+          const name = workspaceData.name || 'Untitled';
+          folderPath = base ? (base.endsWith('/') || base.endsWith('\\') ? `${base}${name}` : `${base}/${name}`) : name;
+        } else if (workspaceData.type === 'clone' && !folderPath) {
+          if (!workspaceData.url) {
+            toast.error('Please provide a repository URL');
+            return;
+          }
+          const urlSegments = workspaceData.url.split('/');
+          const repoName = urlSegments[urlSegments.length - 1]?.split('?')[0]?.replace('.git', '') || 'cloned-repo';
+          folderPath = base ? (base.endsWith('/') || base.endsWith('\\') ? `${base}${repoName}` : `${base}/${repoName}`) : repoName;
+        }
+      }
+
       if (!folderPath) {
         if (!isManualPath) toast.error('Please provide a folder path');
         return;
-      }
-
-      if (!isManualPath && workspaceData.type === 'create') {
-        const base = settings.baseProjectsDir || '';
-        const name = workspaceData.name || 'Untitled';
-        folderPath = base.endsWith('/') || base.endsWith('\\') ? `${base}${name}` : `${base}/${name}`;
       }
 
       const res = await fetch('/api/workspace/open', {
@@ -950,13 +1017,11 @@ export default function App() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setActivePath(data.path);
+      setProjectKey(prev => prev + 1);
       localStorage.setItem('sg_last_path', data.path);
       addToRecentFolders(data.path);
       setIsWorkspacePickerOpen(false);
       setWorkspaceData({ path: '', type: 'open', url: '', name: '' });
-      
-      // If we are opening a workspace, also try to fetch files
-      fetchFiles(data.path);
 
       if (!isManualPath) {
         toast.success(
@@ -1158,16 +1223,6 @@ export default function App() {
           <aside className="w-12 glass-panel border-r flex flex-col items-center py-5 gap-6 shrink-0">
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isWorkspacePickerOpen ? 'text-indigo-600' : 'text-indigo-900/40 hover:text-indigo-600'}`}
-                onClick={() => setIsWorkspacePickerOpen(true)}
-              >
-                <Folder className="w-5 h-5" />
-              </TooltipTrigger>
-              <TooltipContent side="right">Open Folder</TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger 
                 className={`transition-colors ${isSidebarOpen ? 'text-indigo-600' : 'text-indigo-400/50'}`}
                 onClick={() => {
                   if (!activePath) {
@@ -1180,6 +1235,16 @@ export default function App() {
                 <FileText className="w-5 h-5" />
               </TooltipTrigger>
               <TooltipContent side="right">Scripts</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger 
+                className={`transition-colors ${isWorkspacePickerOpen ? 'text-indigo-600' : 'text-indigo-900/40 hover:text-indigo-600'}`}
+                onClick={() => setIsWorkspacePickerOpen(true)}
+              >
+                <Folder className="w-5 h-5" />
+              </TooltipTrigger>
+              <TooltipContent side="right">Open Folder</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -1337,15 +1402,31 @@ export default function App() {
                 <div className="flex-1 flex flex-col min-h-0">
                   <div className="p-4 flex items-center justify-between text-[11px] font-bold text-indigo-900/40 uppercase tracking-widest border-b border-indigo-100/20">
                     <span className="truncate">{getBasename(activePath)}</span>
-                    <Tooltip>
-                      <TooltipTrigger 
-                        onClick={() => setIsNewScriptOpen(true)} 
-                        className="hover:text-indigo-600 p-1"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </TooltipTrigger>
-                      <TooltipContent>New Script</TooltipContent>
-                    </Tooltip>
+                    <div className="flex items-center gap-1">
+                      <Tooltip>
+                        <TooltipTrigger 
+                          onClick={() => {
+                            if (activePath) {
+                              fetchFiles(activePath);
+                              fetchGitStatus(activePath);
+                            }
+                          }} 
+                          className="hover:text-indigo-600 p-1"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </TooltipTrigger>
+                        <TooltipContent>Refresh Workspace</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger 
+                          onClick={() => setIsNewScriptOpen(true)} 
+                          className="hover:text-indigo-600 p-1"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </TooltipTrigger>
+                        <TooltipContent>New Script</TooltipContent>
+                      </Tooltip>
+                    </div>
                   </div>
                   
                   <ScrollArea className="flex-1">
@@ -1414,9 +1495,9 @@ export default function App() {
             }}
           >
             <motion.div 
-              key={`${activePath}-${activeFile || 'none'}`}
+              key={`${activePath}-${projectKey}`}
               style={{ scale: zoom, transformOrigin: 'top center' }}
-              className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-16 md:p-20 relative mb-10 cursor-text"
+              className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-16 md:p-20 relative mb-10 cursor-text flex flex-col overflow-hidden"
               onClick={(e) => {
                 if (e.target === e.currentTarget && editorRef.current) {
                   const lastLine = editorRef.current.lastElementChild as HTMLElement;
@@ -1434,6 +1515,27 @@ export default function App() {
                 }
               }}
             >
+              <AnimatePresence>
+                {isInitialLoading && (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 z-50 bg-white/60 backdrop-blur-md flex flex-col items-center justify-center space-y-4"
+                  >
+                    <div className="relative">
+                      <Loader2 className="w-10 h-10 text-indigo-600 animate-spin opacity-40" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                      </div>
+                    </div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-indigo-900/40">
+                      Synchronizing Workspace
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {activeFile ? (
                 <div 
                   ref={editorRef}
@@ -1564,7 +1666,7 @@ export default function App() {
                   }}
                 />
               ) : (
-                <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
+                <div className="flex-1 flex flex-col items-center justify-center text-gray-400 space-y-4 py-32">
                   <FileText className="w-12 h-12 opacity-20" />
                   <p className="text-sm">Select or create a script to begin</p>
                   <Button variant="glass" onClick={() => setIsNewScriptOpen(true)}>Create New Script</Button>
@@ -2003,7 +2105,10 @@ export default function App() {
                         {recentFolders.map((p) => (
                           <button
                             key={p}
-                            onClick={() => setWorkspaceData({ ...workspaceData, path: p })}
+                            onClick={() => {
+                              setWorkspaceData({ ...workspaceData, path: p, type: 'open' });
+                              handleOpenWorkspace(p);
+                            }}
                             className="text-left text-xs px-2 py-1.5 rounded hover:bg-gray-100 flex items-center gap-2 group overflow-hidden"
                             title={p}
                           >
