@@ -1581,11 +1581,19 @@ export default function App() {
                           <button
                             key={block.id}
                             onClick={() => {
-                              const el = document.getElementById(`block-${block.id}`);
-                              el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              const el = document.getElementById(block.id);
+                              if (el) {
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                // Add a temporary highlight effect
+                                el.style.backgroundColor = 'rgba(79, 70, 229, 0.1)';
+                                setTimeout(() => {
+                                  el.style.backgroundColor = '';
+                                }, 2000);
+                                el.focus();
+                              }
                               setActiveBlockId(block.id);
                             }}
-                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-indigo-50/50 transition-all group"
+                            className={`w-full text-left px-3 py-2 rounded-lg transition-all group ${activeBlockId === block.id ? 'bg-indigo-50 border-l-2 border-indigo-500' : 'hover:bg-indigo-50/50'}`}
                           >
                             <div className="text-[10px] text-indigo-900/40 font-mono mb-0.5">SCENE {idx + 1}</div>
                             <div className="text-xs font-bold text-indigo-900 truncate uppercase">
