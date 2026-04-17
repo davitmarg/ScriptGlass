@@ -1601,7 +1601,7 @@ Snippet:
             <motion.div 
               key={`${activePath}-${projectKey}`}
               style={{ scale: zoom, transformOrigin: 'top center' }}
-              className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-16 md:p-20 relative mb-10 cursor-text flex flex-col overflow-hidden"
+              className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-0 relative mb-10 cursor-text flex flex-col overflow-hidden"
               onClick={(e) => {
                 if (e.target === e.currentTarget && editorRef.current) {
                   const lastLine = editorRef.current.lastElementChild as HTMLElement;
@@ -1645,7 +1645,7 @@ Snippet:
                   ref={editorRef}
                   contentEditable
                   suppressContentEditableWarning
-                  className="outline-none min-h-full w-full"
+                  className="outline-none min-h-full w-full p-16 md:p-20"
                   onInput={() => {
                     const newBlocks = updateFormatting();
                     saveToHistory(newBlocks);

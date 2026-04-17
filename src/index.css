@@ -92,9 +92,9 @@
 /* Screenplay Formatting Classes - defined AFTER base for priority */
 .script-scene { @apply uppercase font-bold text-left mt-8 mb-4; }
 .script-action { @apply text-left mb-6; }
-.script-character { @apply uppercase font-bold text-center w-[60%] mx-auto mb-0 mt-6; }
-.script-parenthetical { @apply italic text-center w-[40%] mx-auto mb-0 text-sm; }
-.script-dialogue { @apply text-center w-[75%] mx-auto mb-6; }
+.script-character { @apply uppercase font-bold text-center w-full px-[20%] mb-0 mt-6; }
+.script-parenthetical { @apply italic text-center w-full px-[30%] mb-0 text-sm; }
+.script-dialogue { @apply text-center w-full px-[15%] mb-6; }
 .script-transition { @apply uppercase text-right mt-6 mb-6; }
 .script-shot { @apply uppercase font-bold text-left mt-6 mb-6; }
 .script-general { @apply text-left mb-4; }
