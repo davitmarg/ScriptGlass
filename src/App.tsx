@@ -68,7 +68,6 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
-  const [gitLog, setGitLog] = useState<GitLogEntry[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [githubToken, setGithubToken] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -103,7 +102,8 @@ export default function App() {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [terminalOutput, setTerminalOutput] = useState<TerminalOutput[]>([]);
   const [terminalInput, setTerminalInput] = useState('');
-  const [terminalMode, setTerminalMode] = useState<'git' | 'interactive'>('git');
+  const [terminalHistory, setTerminalHistory] = useState<string[]>([]);
+  const [terminalHistoryIndex, setTerminalHistoryIndex] = useState(-1);
   const [currentPage, setCurrentPage] = useState(1);
   const currentEditorFile = useRef<string | null>(null);
 
@@ -120,6 +120,17 @@ export default function App() {
       terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
     }
   }, [terminalOutput]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'j') {
+        e.preventDefault();
+        setIsTerminalOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
 
   // Load last session and recent history
   useEffect(() => {
@@ -142,12 +153,20 @@ export default function App() {
     localStorage.setItem('sg_recent_folders', JSON.stringify(filtered));
   };
 
+  useEffect(() => {
+    if (terminalScrollRef.current) {
+      terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
+    }
+  }, [terminalOutput]);
+
   const executeTerminalCommand = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!terminalInput.trim()) return;
 
     const cmd = terminalInput.trim();
     setTerminalOutput(prev => [...prev, { type: 'command', content: cmd }]);
+    setTerminalHistory(prev => [cmd, ...prev.filter(c => c !== cmd)].slice(0, 50));
+    setTerminalHistoryIndex(-1);
     setTerminalInput('');
 
     try {
@@ -167,6 +186,42 @@ export default function App() {
       }
     } catch (err) {
       setTerminalOutput(prev => [...prev, { type: 'error', content: String(err) }]);
+    }
+  };
+
+  const getShortPath = (path: string) => {
+    if (!path) return '';
+    const parts = path.split(/[/\\]/);
+    if (parts.length <= 2) return path;
+    return `.../${parts.slice(-2).join('/')}`;
+  };
+
+  const handleTerminalKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (terminalHistory.length > 0) {
+        const nextIndex = terminalHistoryIndex + 1;
+        if (nextIndex < terminalHistory.length) {
+          setTerminalHistoryIndex(nextIndex);
+          setTerminalInput(terminalHistory[nextIndex]);
+        }
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (terminalHistoryIndex > 0) {
+        const nextIndex = terminalHistoryIndex - 1;
+        setTerminalHistoryIndex(nextIndex);
+        setTerminalInput(terminalHistory[nextIndex]);
+      } else if (terminalHistoryIndex === 0) {
+        setTerminalHistoryIndex(-1);
+        setTerminalInput('');
+      }
+    } else if (e.ctrlKey && e.key === 'l') {
+      e.preventDefault();
+      setTerminalOutput([]);
+    } else if (e.ctrlKey && e.key === 'c') {
+      e.preventDefault();
+      setTerminalInput('');
     }
   };
 
@@ -1249,24 +1304,6 @@ export default function App() {
 
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isTerminalOpen && terminalMode === 'git' ? 'text-indigo-600' : 'text-indigo-900/40'}`}
-                onClick={() => {
-                  if (isTerminalOpen && terminalMode === 'git') {
-                    setIsTerminalOpen(false);
-                  } else {
-                    setIsTerminalOpen(true);
-                    setTerminalMode('git');
-                    if (activePath) fetchGitStatus(activePath);
-                  }
-                }}
-              >
-                <Clock className="w-5 h-5" />
-              </TooltipTrigger>
-              <TooltipContent side="right">History</TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger 
                 className={`transition-colors ${isSettingsOpen ? 'text-indigo-600' : 'text-indigo-900/40'}`}
                 onClick={() => setIsSettingsOpen(true)}
               >
@@ -1278,15 +1315,8 @@ export default function App() {
             <div className="mt-auto pb-4 flex flex-col gap-6">
               <Tooltip>
                 <TooltipTrigger 
-                  className={`transition-colors ${isTerminalOpen && terminalMode === 'interactive' ? 'text-indigo-600' : 'text-indigo-900/40'}`}
-                  onClick={() => {
-                    if (isTerminalOpen && terminalMode === 'interactive') {
-                      setIsTerminalOpen(false);
-                    } else {
-                      setIsTerminalOpen(true);
-                      setTerminalMode('interactive');
-                    }
-                  }}
+                  className={`transition-colors ${isTerminalOpen ? 'text-indigo-600' : 'text-indigo-900/40'}`}
+                  onClick={() => setIsTerminalOpen(!isTerminalOpen)}
                 >
                   <TerminalIcon className="w-5 h-5" />
                 </TooltipTrigger>
@@ -1911,70 +1941,83 @@ export default function App() {
           {isTerminalOpen && (
             <motion.div
               initial={{ height: 0 }}
-              animate={{ height: terminalMode === 'interactive' ? 240 : 160 }}
+              animate={{ height: 240 }}
               exit={{ height: 0 }}
               className="glass-panel border-t overflow-hidden flex flex-col shrink-0"
             >
-              <div className="flex items-center justify-between px-4 py-2 border-b border-indigo-100/20">
-                <div className="flex items-center gap-2 text-[10px] text-indigo-900/40 uppercase tracking-[1px]">
-                  <span>{terminalMode === 'interactive' ? 'Interactive Terminal' : 'Project History'}</span>
-                  <Separator orientation="vertical" className="h-2 bg-indigo-100/20" />
-                  <span>{terminalMode === 'interactive' ? 'bash / git / shell' : 'git-log --oneline -n 5'}</span>
+              <div className="flex items-center justify-between px-4 py-2 border-b border-indigo-100/20 bg-white/30">
+                <div className="flex items-center gap-3 text-[10px] text-indigo-900/40 uppercase tracking-[1px] font-medium">
+                  <span>Standard Terminal</span>
+                  <span className="opacity-30">|</span>
+                  <span className="normal-case opacity-60 font-mono text-[9px]">{activePath || 'no-workspace'}</span>
                 </div>
-                <button className="text-indigo-900/40 hover:text-indigo-900" onClick={() => setIsTerminalOpen(false)}>
-                  <ChevronLeft className="w-4 h-4 rotate-[-90deg]" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button 
+                    className="p-1 hover:bg-indigo-500/10 rounded-md text-indigo-900/40 hover:text-red-500 transition-colors"
+                    onClick={() => {
+                      setTerminalOutput([]);
+                      setIsTerminalOpen(false);
+                    }}
+                    title="Kill / Clear Terminal"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button 
+                    className="p-1 hover:bg-indigo-500/10 rounded-md text-indigo-900/40 hover:text-indigo-900 transition-colors" 
+                    onClick={() => setIsTerminalOpen(false)}
+                  >
+                    <ChevronLeft className="w-4 h-4 rotate-[-90deg]" />
+                  </button>
+                </div>
               </div>
 
-              {terminalMode === 'interactive' ? (
-                <div className="flex-1 flex flex-col overflow-hidden bg-indigo-950/5">
-                  <div 
-                    ref={terminalScrollRef}
-                    className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-1 selection:bg-indigo-500/30"
-                  >
-                    {terminalOutput.map((line, i) => (
-                      <div key={i} className={`whitespace-pre-wrap ${
-                        line.type === 'command' ? 'text-indigo-600 font-bold' :
-                        line.type === 'stderr' ? 'text-amber-600' :
-                        line.type === 'error' ? 'text-red-500' : 'text-indigo-900/80'
-                      }`}>
-                        {line.type === 'command' && <span className="mr-2">$</span>}
-                        {line.content}
-                      </div>
-                    ))}
-                    {terminalOutput.length === 0 && (
-                      <div className="text-indigo-900/30 italic">Ready for commands... try 'git status' or 'ls'</div>
-                    )}
-                  </div>
+              <div className="flex-1 flex flex-col overflow-hidden bg-white/20">
+                <div 
+                  ref={terminalScrollRef}
+                  className="flex-1 overflow-y-auto p-4 font-mono text-[11px] selection:bg-indigo-500/30 scrollbar-hide"
+                  onClick={() => {
+                    const input = document.getElementById('terminal-input');
+                    if (input) input.focus();
+                  }}
+                >
+                  {terminalOutput.map((line, i) => (
+                    <div key={i} className={`whitespace-pre-wrap mb-0.5 ${
+                      line.type === 'command' ? 'text-indigo-950 font-bold' :
+                      line.type === 'stderr' ? 'text-amber-600' :
+                      line.type === 'error' ? 'text-red-500' : 'text-indigo-900/70'
+                    }`}>
+                      {line.type === 'command' && (
+                        <span className="text-indigo-600 mr-2 font-bold">
+                          <span className="opacity-40">[{getShortPath(activePath)}]</span>
+                          <span className="ml-1">$</span>
+                        </span>
+                      )}
+                      {line.content}
+                    </div>
+                  ))}
+                  
                   <form 
                     onSubmit={executeTerminalCommand}
-                    className="p-2 border-t border-indigo-100/20 bg-white/50 flex items-center gap-2"
+                    className="mt-1 flex items-center gap-0"
                   >
-                    <span className="text-[11px] font-mono font-bold text-indigo-500 ml-2">$</span>
+                    <span className="text-indigo-600 shrink-0 font-bold mr-2 whitespace-nowrap">
+                      <span className="opacity-40">[{getShortPath(activePath || 'sg')}]</span>
+                      <span className="ml-1 font-black">$</span>
+                    </span>
                     <input
+                      id="terminal-input"
                       value={terminalInput}
                       onChange={(e) => setTerminalInput(e.target.value)}
-                      placeholder="Type a command and press Enter..."
-                      className="flex-1 bg-transparent border-none outline-none text-[11px] font-mono text-indigo-950 h-6"
+                      onKeyDown={handleTerminalKeyDown}
+                      placeholder=""
+                      autoComplete="off"
+                      spellCheck="false"
+                      className="flex-1 bg-transparent border-none outline-none text-indigo-950 font-mono caret-indigo-500"
                       autoFocus
                     />
                   </form>
                 </div>
-              ) : (
-                <ScrollArea className="flex-1 p-4">
-                  <div className="space-y-1 text-[12px]">
-                    {gitLog.length > 0 ? gitLog.map((log) => (
-                      <div key={log.hash} className="flex gap-4">
-                        <span className="text-indigo-500 font-bold">$</span>
-                        <span className="text-indigo-900/30">{log.hash.substring(0, 7)}</span>
-                        <span className="text-indigo-900/80">{log.message}</span>
-                      </div>
-                    )) : (
-                      <div className="text-indigo-900/30 italic">No commit history yet.</div>
-                    )}
-                  </div>
-                </ScrollArea>
-              )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -1986,9 +2029,12 @@ export default function App() {
               <GitBranch className="w-3.5 h-3.5" />
               <span>
                 {gitStatus?.branch || 'main'}
-                {gitStatus && (gitStatus.status.modified.length > 0 || gitStatus.status.not_added.length > 0) && (
-                  <span className="ml-1 text-indigo-600 font-bold" title="Uncommitted changes">*</span>
-                )}
+                {gitStatus && (
+                  gitStatus.status.files?.length > 0 || 
+                  (gitStatus.status.ahead ?? 0) > 0
+                ) ? (
+                  <span className="ml-1 text-indigo-600 font-bold" title="Uncommitted or unpushed changes">*</span>
+                ) : null}
               </span>
             </div>
             <span>Page {currentPage} of {pageCount}</span>
