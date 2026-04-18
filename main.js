@@ -30,8 +30,8 @@ import {
   browseFolders 
 } from './src/lib/services.server.ts';
 
-const _filename = (typeof import.meta !== 'undefined' && import.meta.url) ? fileURLToPath(import.meta.url) : __filename;
-const _dirname = (typeof import.meta !== 'undefined' && import.meta.url) ? path.dirname(_filename) : __dirname;
+const _filename = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url);
+const _dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(_filename);
 
 const CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
 const settings = new SettingsManager(CONFIG_FILE);

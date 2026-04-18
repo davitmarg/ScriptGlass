@@ -7,8 +7,8 @@ import { simpleGit } from "simple-git";
 import type { SimpleGit } from "simple-git";
 import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const _filename = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url);
+const _dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(_filename);
 
 // In Electron, we want to store config in the user data directory
 // But for now, we'll keep it simple or allow the caller to specify
