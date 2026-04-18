@@ -1,11 +1,11 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'path';
+import 'dotenv/config';
 
-// Suppress punycode deprecation warning (common in Node 21+)
+// Suppress punycode deprecation warning
 const originalEmitWarning = process.emitWarning;
 process.emitWarning = (warning, ...args) => {
-  if (typeof warning === 'string' && warning.includes('punycode')) return;
-  if (args[0] === 'DeprecationWarning' && typeof warning === 'string' && warning.includes('punycode')) return;
+  if (typeof warning === 'string' && (warning.includes('punycode') || warning.includes('DeprecationWarning'))) return;
   return originalEmitWarning(warning, ...args);
 };
 
@@ -226,10 +226,16 @@ ipcMain.handle('/api/terminal/exec', async (event, { command, activePath }) => {
 // GitHub Auth with System Browser
 let oauthServer = null;
 const OAUTH_PORT = 4567;
+const OAUTH_HOST = '127.0.0.1'; // Use explicit IPv4 to avoid localhost resolution issues
 
 ipcMain.handle('/api/auth/github/url', async () => {
   const client_id = process.env.GITHUB_CLIENT_ID || 'Iv23liev9mUnatZ8W9S3';
-  const redirect_uri = `http://localhost:${OAUTH_PORT}/callback`;
+  const redirect_uri = `http://${OAUTH_HOST}:${OAUTH_PORT}/callback`;
+  
+  if (!process.env.GITHUB_CLIENT_ID) {
+    console.warn('Warning: GITHUB_CLIENT_ID is not set in environment or .env file.');
+  }
+
   return { 
     url: `https://github.com/login/oauth/authorize?client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=repo,user`,
     isElectron: true
@@ -237,39 +243,74 @@ ipcMain.handle('/api/auth/github/url', async () => {
 });
 
 ipcMain.on('github-oauth-start', (event, url) => {
-  // Clear any existing server
-  if (oauthServer) oauthServer.close();
+  if (oauthServer) {
+    oauthServer.close();
+    oauthServer = null;
+  }
 
   oauthServer = http.createServer(async (req, res) => {
-    const urlObj = new URL(req.url, `http://localhost:${OAUTH_PORT}`);
+    const urlObj = new URL(req.url, `http://${OAUTH_HOST}:${OAUTH_PORT}`);
+    
     if (urlObj.pathname === '/callback') {
       const code = urlObj.searchParams.get('code');
+      const client_id = process.env.GITHUB_CLIENT_ID || 'Iv23liev9mUnatZ8W9S3';
+      const client_secret = process.env.GITHUB_CLIENT_SECRET;
+
+      console.log(`OAuth Callback received. Exchanging code for token...`);
       
       try {
+        if (!client_secret) {
+          throw new Error('GITHUB_CLIENT_SECRET is not set. Token exchange cannot proceed.');
+        }
+
         const response = await axios.post('https://github.com/login/oauth/access_token', {
-          client_id: process.env.GITHUB_CLIENT_ID,
-          client_secret: process.env.GITHUB_CLIENT_SECRET,
+          client_id,
+          client_secret,
           code,
         }, { headers: { Accept: 'application/json' } });
 
-        const { access_token } = response.data;
+        const { access_token, error, error_description } = response.data;
+        
+        if (error) {
+          console.error(`GitHub OAuth Error: ${error} - ${error_description}`);
+          res.writeHead(400, { 'Content-Type': 'text/html' });
+          res.end(`<h1>Authentication Failed</h1><p>${error_description || error}</p>`);
+          return;
+        }
+
         if (access_token) {
           event.sender.send('github-oauth-token', access_token);
           res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end('<h1>Success!</h1><p>You can close this tab now and return to ScriptGlass.</p><script>window.close();</script>');
+          res.end(`
+            <html>
+              <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1 style="color: #2ea44f;">Success!</h1>
+                <p>Authentication complete. You can close this tab and return to ScriptGlass.</p>
+                <script>window.close();</script>
+              </body>
+            </html>
+          `);
         } else {
-          res.writeHead(400);
-          res.end('Authentication failed');
+          throw new Error('No access token received from GitHub');
         }
       } catch (err) {
-        res.writeHead(500);
-        res.end('Error exchanging code');
+        console.error('Code exchange failed:', err);
+        res.writeHead(500, { 'Content-Type': 'text/html' });
+        res.end(`<h1>Server Error</h1><p>${err instanceof Error ? err.message : 'Unknown error during authentication'}</p>`);
       } finally {
-        oauthServer.close();
-        oauthServer = null;
+        if (oauthServer) {
+          oauthServer.close();
+          oauthServer = null;
+        }
       }
+    } else {
+      res.writeHead(404);
+      res.end('Not Found');
     }
-  }).listen(OAUTH_PORT);
+  });
 
-  shell.openExternal(url);
+  oauthServer.listen(OAUTH_PORT, OAUTH_HOST, () => {
+    console.log(`Local OAuth server listening on http://${OAUTH_HOST}:${OAUTH_PORT}`);
+    shell.openExternal(url);
+  });
 });

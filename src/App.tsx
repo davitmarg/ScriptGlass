@@ -137,7 +137,12 @@ export default function App() {
       }
       setBrowserData(data);
     } catch (error) {
-      toast.error('Failed to browse directories');
+      console.error('Browse error:', error);
+      toast.error(`Failed to browse: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Fallback to ROOT if stuck
+      if (targetPath && targetPath !== 'ROOT') {
+        fetchBrowseData('ROOT');
+      }
     }
   };
 

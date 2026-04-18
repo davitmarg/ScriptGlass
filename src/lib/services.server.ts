@@ -207,28 +207,37 @@ export class GitManager {
 
 export const decodePath = (encoded: string) => Buffer.from(encoded, "base64").toString("utf-8");
 
-export async function browseFolders(targetPath: string, baseDir: string) {
+export async function browseFolders(targetPath: string | null, baseDir: string) {
   const isWindows = os.platform() === 'win32';
-  let startPath = targetPath || baseDir || os.homedir();
   
-  if (targetPath === 'ROOT' || !startPath) {
-    if (isWindows) {
+  // Normalize Windows paths and handle ROOT
+  let startPath = targetPath;
+  if (startPath && isWindows && startPath !== 'ROOT') {
+    startPath = path.normalize(startPath);
+  }
+  
+  if (!startPath || startPath === '' || startPath === 'ROOT') {
+    const defaultStart = baseDir || os.homedir();
+    if (isWindows && (!targetPath || targetPath === 'ROOT')) {
       const drives = await new Promise<string[]>((resolve) => {
         exec('powershell -Command "Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Root"', (error, stdout) => {
           if (error) {
-            // Fallback for older systems
             exec('wmic logicaldisk get name', (error2, stdout2) => {
-              if (error2) resolve(['C:\\']);
-              const list = stdout2.split('\r\n')
+              if (error2) {
+                resolve(['C:\\']);
+                return;
+              }
+              const list = stdout2.split(/\r?\n/)
                 .filter(value => /[A-Za-z]:/.test(value))
                 .map(value => value.trim() + path.sep);
               resolve(list.length > 0 ? list : ['C:\\']);
             });
             return;
           }
-          const list = stdout.split('\r\n')
+          const list = stdout.split(/\r?\n/)
             .map(v => v.trim())
-            .filter(v => v !== '' && !v.includes('Root'));
+            .filter(v => v !== '' && !v.toLowerCase().includes('root'))
+            .map(v => v.endsWith(path.sep) ? v : v + path.sep);
           resolve(list.length > 0 ? list : ['C:\\']);
         });
       });
@@ -240,28 +249,30 @@ export async function browseFolders(targetPath: string, baseDir: string) {
         isRoot: true
       };
     } else {
-      startPath = '/';
+      startPath = isWindows ? defaultStart : (targetPath === 'ROOT' ? '/' : defaultStart);
     }
   }
 
   try {
-    const items = await fs.readdir(startPath, { withFileTypes: true });
+    const absoluteStartPath = path.resolve(startPath);
+    const items = await fs.readdir(absoluteStartPath, { withFileTypes: true });
     const directories = items
       .filter(item => item.isDirectory() && !item.name.startsWith('.'))
       .map(item => item.name)
       .sort();
     
-    const parentPath = path.dirname(startPath);
+    const parentPath = path.dirname(absoluteStartPath);
+    const isAtDriveRoot = isWindows && /^[A-Z]:\\?$/i.test(absoluteStartPath);
+    const isAtSystemRoot = !isWindows && absoluteStartPath === '/';
     
     return {
-      currentPath: startPath,
-      parentPath: parentPath === startPath ? (isWindows ? 'ROOT' : startPath) : parentPath,
+      currentPath: absoluteStartPath,
+      parentPath: (isAtDriveRoot || isAtSystemRoot) ? 'ROOT' : parentPath,
       directories,
       sep: path.sep,
-      isRoot: parentPath === startPath && !isWindows
+      isRoot: isAtSystemRoot || isAtDriveRoot
     };
   } catch (error) {
-    // If we fail to read a path, return to ROOT on Windows or just error out
     if (isWindows && targetPath !== 'ROOT') {
       return await browseFolders('ROOT', baseDir);
     }

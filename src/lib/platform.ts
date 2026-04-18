@@ -1,7 +1,12 @@
 
 export const isElectron = () => {
   // @ts-ignore
-  return typeof window !== 'undefined' && window.process && window.process.versions && window.process.versions.electron;
+  if (typeof window !== 'undefined' && window.electronAPI) return true;
+  // @ts-ignore
+  return typeof window !== 'undefined' && (
+    (window.process && window.process.versions && window.process.versions.electron) ||
+    (navigator.userAgent.toLowerCase().includes('electron'))
+  );
 };
 
 export const getPlatform = () => {
@@ -24,15 +29,17 @@ export async function apiCall(endpoint: string, options: any = {}) {
       // and provide the full URL as well
       const data = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : (options.params || {});
       
-      // If endpoint contains specific patterns, we can route it
-      let channel = endpoint;
+      // Extract base channel from endpoint (remove query params)
+      let channel = endpoint.split('?')[0];
+
+      // If endpoint contains specific patterns, we can route it even if it has dynamic IDs in path
       if (endpoint.includes('/workspace/') && endpoint.includes('/files')) {
         channel = '/api/workspace/files';
       } else if (endpoint.includes('/workspace/') && endpoint.includes('/git/')) {
         channel = '/api/workspace/git';
       }
 
-      return await electron.invoke(channel, { ...data, endpoint, method: options.method });
+      return await electron.invoke(channel, { ...data, endpoint, method: options.method || 'GET' });
     }
   }
 
