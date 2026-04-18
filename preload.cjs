@@ -24,6 +24,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return Promise.reject(new Error(`Unauthorized IPC channel: ${channel}`));
   },
   
+  // Window controls
+  minimize: () => ipcRenderer.send('window-minimize'),
+  maximize: () => ipcRenderer.send('window-maximize'),
+  close: () => ipcRenderer.send('window-close'),
+  
   // Method to start OAuth flow
   startGitHubAuth: (url) => {
     ipcRenderer.send('github-oauth-start', url);

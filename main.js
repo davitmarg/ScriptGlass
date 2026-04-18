@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import { exec } from 'child_process';
 import axios from 'axios';
+import http from 'http';
 import { 
   SettingsManager, 
   FileSystemProvider, 
@@ -25,6 +26,7 @@ async function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    frame: false, // Frameless window
     webPreferences: {
       autoHideMenuBar: true,
       contextIsolation: true,
@@ -62,7 +64,32 @@ const getFilenameFromUrl = (url) => {
   return parts[1];
 };
 
+const getQueryParam = (url, param) => {
+  try {
+    const u = new URL(url, 'http://localhost');
+    return u.searchParams.get(param);
+  } catch (e) {
+    return null;
+  }
+};
+
 // --- IPC Handlers ---
+
+// Window Controls
+ipcMain.on('window-minimize', () => {
+  BrowserWindow.getFocusedWindow()?.minimize();
+});
+ipcMain.on('window-maximize', () => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (win?.isMaximized()) {
+    win.unmaximize();
+  } else {
+    win?.maximize();
+  }
+});
+ipcMain.on('window-close', () => {
+  BrowserWindow.getFocusedWindow()?.close();
+});
 
 ipcMain.handle('open-external-url', async (event, { url }) => {
   if (url) await shell.openExternal(url);
@@ -105,7 +132,8 @@ ipcMain.handle('/api/workspace/open', async (event, { folderPath, type, url }) =
 
 ipcMain.handle('/api/browse', async (event, params) => {
   try {
-    return await browseFolders(params?.path, settings.baseDir);
+    const pathParam = getQueryParam(params.endpoint, 'path');
+    return await browseFolders(pathParam, settings.baseDir);
   } catch (e) {
     return { error: String(e) };
   }
@@ -142,23 +170,23 @@ ipcMain.handle('/api/workspace/git', async (event, params) => {
     const absPath = decodePath(encodedPath);
     const git = new GitManager(absPath);
 
-    if (params.endpoint.endsWith('/status')) {
+    if (params.endpoint.includes('/status')) {
       const status = await git.getStatus();
       const branch = await git.getBranch();
       return { status, branch };
     }
 
-    if (params.endpoint.endsWith('/log')) {
+    if (params.endpoint.includes('/log')) {
       return await git.getLog();
     }
 
-    if (params.endpoint.endsWith('/sync')) {
+    if (params.endpoint.includes('/sync')) {
       await git.initRepo();
       await git.commit(params.commitMessage || `Sync ${new Date().toISOString()}`, params.token);
       return await git.push(params.token, path.basename(absPath));
     }
 
-    if (params.endpoint.endsWith('/pull')) {
+    if (params.endpoint.includes('/pull')) {
       const repoName = path.basename(absPath.replace(/[/\\]$/, ""));
       return await git.pull(params.token, repoName);
     }
@@ -178,9 +206,13 @@ ipcMain.handle('/api/terminal/exec', async (event, { command, activePath }) => {
   });
 });
 
+// GitHub Auth with System Browser
+let oauthServer = null;
+const OAUTH_PORT = 4567;
+
 ipcMain.handle('/api/auth/github/url', async () => {
-  const client_id = process.env.GITHUB_CLIENT_ID;
-  const redirect_uri = `https://github.com/login/oauth/callback`;
+  const client_id = process.env.GITHUB_CLIENT_ID || 'Iv23liev9mUnatZ8W9S3';
+  const redirect_uri = `http://localhost:${OAUTH_PORT}/callback`;
   return { 
     url: `https://github.com/login/oauth/authorize?client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=repo,user`,
     isElectron: true
@@ -188,19 +220,14 @@ ipcMain.handle('/api/auth/github/url', async () => {
 });
 
 ipcMain.on('github-oauth-start', (event, url) => {
-  const authWin = new BrowserWindow({
-    width: 600,
-    height: 800,
-    show: true,
-  });
+  // Clear any existing server
+  if (oauthServer) oauthServer.close();
 
-  authWin.loadURL(url);
-
-  const handleRedirect = async (newUrl) => {
-    if (newUrl.includes('code=')) {
-      const code = new URL(newUrl).searchParams.get('code');
-      authWin.close();
-
+  oauthServer = http.createServer(async (req, res) => {
+    const urlObj = new URL(req.url, `http://localhost:${OAUTH_PORT}`);
+    if (urlObj.pathname === '/callback') {
+      const code = urlObj.searchParams.get('code');
+      
       try {
         const response = await axios.post('https://github.com/login/oauth/access_token', {
           client_id: process.env.GITHUB_CLIENT_ID,
@@ -211,13 +238,21 @@ ipcMain.on('github-oauth-start', (event, url) => {
         const { access_token } = response.data;
         if (access_token) {
           event.sender.send('github-oauth-token', access_token);
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end('<h1>Success!</h1><p>You can close this tab now and return to ScriptGlass.</p><script>window.close();</script>');
+        } else {
+          res.writeHead(400);
+          res.end('Authentication failed');
         }
       } catch (err) {
-        console.error('OAuth token exchange failed', err);
+        res.writeHead(500);
+        res.end('Error exchanging code');
+      } finally {
+        oauthServer.close();
+        oauthServer = null;
       }
     }
-  };
+  }).listen(OAUTH_PORT);
 
-  authWin.webContents.on('will-navigate', (e, url) => handleRedirect(url));
-  authWin.webContents.on('will-redirect', (e, url) => handleRedirect(url));
+  shell.openExternal(url);
 });

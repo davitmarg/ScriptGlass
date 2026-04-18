@@ -211,15 +211,25 @@ export async function browseFolders(targetPath: string, baseDir: string) {
   const isWindows = os.platform() === 'win32';
   let startPath = targetPath || baseDir || os.homedir();
   
-  if (targetPath === 'ROOT') {
+  if (targetPath === 'ROOT' || !startPath) {
     if (isWindows) {
       const drives = await new Promise<string[]>((resolve) => {
-        exec('wmic logicaldisk get name', (error, stdout) => {
-          if (error) resolve([]);
+        exec('powershell -Command "Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Root"', (error, stdout) => {
+          if (error) {
+            // Fallback for older systems
+            exec('wmic logicaldisk get name', (error2, stdout2) => {
+              if (error2) resolve(['C:\\']);
+              const list = stdout2.split('\r\n')
+                .filter(value => /[A-Za-z]:/.test(value))
+                .map(value => value.trim() + path.sep);
+              resolve(list.length > 0 ? list : ['C:\\']);
+            });
+            return;
+          }
           const list = stdout.split('\r\n')
-            .filter(value => /[A-Za-z]:/.test(value))
-            .map(value => value.trim() + path.sep);
-          resolve(list);
+            .map(v => v.trim())
+            .filter(v => v !== '' && !v.includes('Root'));
+          resolve(list.length > 0 ? list : ['C:\\']);
         });
       });
       return {
@@ -234,19 +244,27 @@ export async function browseFolders(targetPath: string, baseDir: string) {
     }
   }
 
-  const items = await fs.readdir(startPath, { withFileTypes: true });
-  const directories = items
-    .filter(item => item.isDirectory() && !item.name.startsWith('.'))
-    .map(item => item.name)
-    .sort();
-  
-  const parentPath = path.dirname(startPath);
-  
-  return {
-    currentPath: startPath,
-    parentPath: parentPath === startPath ? (isWindows ? 'ROOT' : startPath) : parentPath,
-    directories,
-    sep: path.sep,
-    isRoot: parentPath === startPath && !isWindows
-  };
+  try {
+    const items = await fs.readdir(startPath, { withFileTypes: true });
+    const directories = items
+      .filter(item => item.isDirectory() && !item.name.startsWith('.'))
+      .map(item => item.name)
+      .sort();
+    
+    const parentPath = path.dirname(startPath);
+    
+    return {
+      currentPath: startPath,
+      parentPath: parentPath === startPath ? (isWindows ? 'ROOT' : startPath) : parentPath,
+      directories,
+      sep: path.sep,
+      isRoot: parentPath === startPath && !isWindows
+    };
+  } catch (error) {
+    // If we fail to read a path, return to ROOT on Windows or just error out
+    if (isWindows && targetPath !== 'ROOT') {
+      return await browseFolders('ROOT', baseDir);
+    }
+    throw error;
+  }
 }
