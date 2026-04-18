@@ -1,5 +1,22 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'path';
+
+// Suppress punycode deprecation warning (common in Node 21+)
+const originalEmitWarning = process.emitWarning;
+process.emitWarning = (warning, ...args) => {
+  if (typeof warning === 'string' && warning.includes('punycode')) return;
+  if (args[0] === 'DeprecationWarning' && typeof warning === 'string' && warning.includes('punycode')) return;
+  return originalEmitWarning(warning, ...args);
+};
+
+// Handle unhandled rejections and exceptions to avoid "Node Exception" popups
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
+});
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
+
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import { exec } from 'child_process';
