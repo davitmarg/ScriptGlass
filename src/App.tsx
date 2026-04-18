@@ -111,6 +111,7 @@ export default function App() {
   const [terminalOutput, setTerminalOutput] = useState<TerminalOutput[]>([]);
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalHistory, setTerminalHistory] = useState<string[]>([]);
+  const [terminalHistoryIndex, setTerminalHistoryIndex] = useState(-1);
   const [isBrowserOpen, setIsBrowserOpen] = useState(false);
   const [browserData, setBrowserData] = useState<{ currentPath: string; parentPath: string; directories: string[]; sep: string; isRoot?: boolean }>({
     currentPath: '',
@@ -2413,7 +2414,7 @@ Snippet:
                 </span>
               </div>
               
-              <div className="flex flex-col border rounded-lg h-[300px] overflow-hidden bg-white">
+              <div className="flex flex-col border rounded-lg h-[450px] overflow-hidden bg-white shadow-inner">
                 <div className="p-2 border-bottom bg-gray-50/80 flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Directories</span>
                   <Button 

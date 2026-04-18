@@ -336,7 +336,7 @@ async function startServer() {
   app.get("/api/browse", async (req, res) => {
     try {
       const isWindows = os.platform() === 'win32';
-      let startPath = (req.query.path as string) || settings.baseProjectsDir || os.homedir();
+      let startPath = (req.query.path as string) || settings.baseDir || os.homedir();
       
       // If path is empty, we show drives on Windows or system root on Linux
       if (req.query.path === 'ROOT') {
@@ -369,7 +369,7 @@ async function startServer() {
 
       const items = await fs.readdir(startPath, { withFileTypes: true });
       const directories = items
-        .filter(item => item.isDirectory())
+        .filter(item => item.isDirectory() && !item.name.startsWith('.'))
         .map(item => item.name)
         .sort();
       
