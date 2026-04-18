@@ -15,7 +15,7 @@ async function build() {
       platform: 'node',
       format: 'cjs',
       outfile: 'dist/main.cjs',
-      external: ['electron', 'axios', 'simple-git'], 
+      external: ['electron'], 
       logOverride: { 'empty-import-meta': 'silent' },
       define: {
         'process.env.GITHUB_CLIENT_ID': JSON.stringify(process.env.GITHUB_CLIENT_ID || ''),
