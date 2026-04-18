@@ -10,8 +10,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       '/api/settings',
       '/api/workspace/open',
       '/api/browse',
-      '/api/terminal/exec'
-      // add more as needed
+      '/api/terminal/exec',
+      '/api/auth/github/url'
     ];
     
     // Check if channel starts with any valid prefix (for dynamic routes)
@@ -22,5 +22,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
     
     return Promise.reject(new Error(`Unauthorized IPC channel: ${channel}`));
+  },
+  
+  // Method to start OAuth flow
+  startGitHubAuth: (url) => {
+    ipcRenderer.send('github-oauth-start', url);
+  },
+  
+  // Method to listen for GitHub token
+  onGitHubToken: (callback) => {
+    const subscription = (event, token) => callback(token);
+    ipcRenderer.on('github-oauth-token', subscription);
+    return () => ipcRenderer.removeListener('github-oauth-token', subscription);
   }
 });

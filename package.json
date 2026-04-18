@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "main.cjs",
+  "main": "main.js",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
@@ -64,7 +64,7 @@
     ],
     "win": {
       "target": "portable",
-      "icon": "public/favicon.ico"
+      "icon": "public/icon.png"
     },
     "asar": true
   }

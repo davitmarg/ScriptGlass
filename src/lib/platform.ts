@@ -18,18 +18,21 @@ export async function apiCall(endpoint: string, options: any = {}) {
   const platform = getPlatform();
 
   if (platform === 'electron') {
-    // In Electron, we use IPC to talk to the main process
-    // We assume contextBridge has exposed an 'electronAPI' or similar helper
-    // If not, we fall back to window.require if not isolated
     const electron = (window as any).electronAPI;
     if (electron && electron.invoke) {
-      return await electron.invoke(endpoint, options.body ? JSON.parse(options.body) : options.params);
-    }
-    
-    // Fallback for non-isolated if allowed
-    const ipcRenderer = (window as any).ipcRenderer;
-    if (ipcRenderer) {
-      return await ipcRenderer.invoke(endpoint, options.body ? JSON.parse(options.body) : options.params);
+      // For dynamic routes (containing /workspace/), we send them to a generic handler
+      // and provide the full URL as well
+      const data = options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : (options.params || {});
+      
+      // If endpoint contains specific patterns, we can route it
+      let channel = endpoint;
+      if (endpoint.includes('/workspace/') && endpoint.includes('/files')) {
+        channel = '/api/workspace/files';
+      } else if (endpoint.includes('/workspace/') && endpoint.includes('/git/')) {
+        channel = '/api/workspace/git';
+      }
+
+      return await electron.invoke(channel, { ...data, endpoint, method: options.method });
     }
   }
 

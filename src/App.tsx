@@ -180,7 +180,7 @@ export default function App() {
     }
   }, [terminalOutput]);
 
-  // Electron: Handle external links
+  // Electron: Handle external links & GitHub Auth Callback
   useEffect(() => {
     if (isDesktop()) {
       const handleExternalClick = (e: MouseEvent) => {
@@ -193,7 +193,19 @@ export default function App() {
         }
       };
       document.addEventListener('click', handleExternalClick);
-      return () => document.removeEventListener('click', handleExternalClick);
+      
+      // Listen for GitHub token from Main Process
+      const cleanupToken = (window as any).electronAPI?.onGitHubToken((token: string) => {
+        setGithubToken(token);
+        localStorage.setItem('sg_github_token', token);
+        setIsGitHubConnected(true);
+        toast.success('GitHub account connected');
+      });
+
+      return () => {
+        document.removeEventListener('click', handleExternalClick);
+        if (cleanupToken) cleanupToken();
+      };
     }
   }, []);
 
@@ -240,12 +252,10 @@ export default function App() {
     setTerminalInput('');
 
     try {
-      const res = await fetch('/api/terminal/exec', {
+      const data = await apiCall('/api/terminal/exec', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd, activePath })
+        body: { command: cmd, activePath }
       });
-      const data = await res.json();
       
       if (data.stdout) setTerminalOutput(prev => [...prev, { type: 'stdout', content: data.stdout }]);
       if (data.stderr) setTerminalOutput(prev => [...prev, { type: 'stderr', content: data.stderr }]);
@@ -803,10 +813,9 @@ export default function App() {
         
         // Persist token to server
         try {
-          await fetch('/api/settings', {
+          await apiCall('/api/settings', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ githubToken: token }),
+            body: { githubToken: token },
           });
           toast.success('GitHub account connected and saved');
         } catch (error) {
@@ -829,8 +838,7 @@ export default function App() {
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch('/api/settings');
-      const data = await res.json();
+      const data = await apiCall('/api/settings');
       setSettings({ 
         baseProjectsDir: data.baseProjectsDir || '', 
         geminiKey: data.geminiKey || '' 
@@ -1027,8 +1035,7 @@ export default function App() {
 
   const fetchFiles = async (absPath: string) => {
     try {
-      const res = await fetch(`/api/workspace/${encodePath(absPath)}/files`);
-      const data = await res.json();
+      const data = await apiCall(`/api/workspace/${encodePath(absPath)}/files`);
       setFiles(data);
       if (data.length > 0) {
         // If current active file is not in the new list, or no active file, open the first one
@@ -1047,8 +1054,7 @@ export default function App() {
 
   const fetchFileContent = async (absPath: string, filename: string) => {
     try {
-      const res = await fetch(`/api/workspace/${encodePath(absPath)}/files/${filename}`);
-      const data = await res.json();
+      const data = await apiCall(`/api/workspace/${encodePath(absPath)}/files/${filename}`);
       const loadedBlocks = fountainToBlocks(data.content || '');
       
       // Update state
@@ -1093,8 +1099,7 @@ export default function App() {
 
   const fetchGitStatus = async (absPath: string) => {
     try {
-      const res = await fetch(`/api/workspace/${encodePath(absPath)}/git/status`);
-      const data = await res.json();
+      const data = await apiCall(`/api/workspace/${encodePath(absPath)}/git/status`);
       setGitStatus(data);
     } catch (error) {
       console.error('Failed to fetch git status');
@@ -1270,13 +1275,10 @@ Snippet:
     const filename = newScriptName.endsWith('.fountain') ? newScriptName : `${newScriptName}.fountain`;
     try {
       const initialContent = '';
-      const res = await fetch(`/api/workspace/${encodePath(activePath)}/files/${filename}`, {
+      const data = await apiCall(`/api/workspace/${encodePath(activePath)}/files/${filename}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: initialContent }),
+        body: { content: initialContent },
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
       
       fetchFiles(activePath);
       setActiveFile(filename);
@@ -1300,11 +1302,14 @@ Snippet:
 
   const handleConnectGitHub = async () => {
     try {
-      const res = await fetch('/api/auth/github/url');
-      const { url, error } = await res.json();
-      if (error) throw new Error(error);
+      const data = await apiCall('/api/auth/github/url');
+      if (data.error) throw new Error(data.error);
 
-      window.open(url, 'github_oauth', 'width=600,height=700');
+      if (data.isElectron && (window as any).electronAPI) {
+        (window as any).electronAPI.startGitHubAuth(data.url);
+      } else {
+        window.open(data.url, 'github_oauth', 'width=600,height=700');
+      }
     } catch (error) {
       toast.error('Failed to initiate GitHub connection');
     }
@@ -1318,13 +1323,10 @@ Snippet:
     }
     setIsSyncing(true);
     try {
-      const res = await fetch(`/api/workspace/${encodePath(activePath)}/git/sync`, {
+      const data = await apiCall(`/api/workspace/${encodePath(activePath)}/git/sync`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: githubToken, commitMessage: syncCommitMessage }),
+        body: { token: githubToken, commitMessage: syncCommitMessage },
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
       
       toast.success('Successfully pushed to GitHub');
       setSyncCommitMessage('');
@@ -1345,38 +1347,19 @@ Snippet:
     }
     setIsPulling(true);
     try {
-      const res = await fetch(`/api/workspace/${encodePath(activePath)}/git/pull`, {
+      const data = await apiCall(`/api/workspace/${encodePath(activePath)}/git/pull`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: githubToken }),
+        body: { token: githubToken },
       });
       
-      const contentType = res.headers.get('content-type');
-      if (!res.ok) {
-        if (contentType && contentType.includes('application/json')) {
-          const errData = await res.json();
-          throw new Error(errData.error || `Server error: ${res.status}`);
-        } else {
-          const text = await res.text();
-          throw new Error(`Server error: ${res.status}. ${text.substring(0, 100)}`);
-        }
-      }
-
-      if (contentType && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        
-        if (data.message) {
-          toast.info(data.message);
-        } else {
-          toast.success('Successfully retrieved latest from GitHub');
-        }
-        
-        fetchFiles(activePath);
-        fetchGitStatus(activePath);
+      if (data.message) {
+        toast.info(data.message);
       } else {
-        throw new Error('Server returned non-JSON response');
+        toast.success('Successfully retrieved latest from GitHub');
       }
+      
+      fetchFiles(activePath);
+      fetchGitStatus(activePath);
     } catch (error: any) {
       toast.error(`Failed to pull: ${error.message}`);
       console.error(error);
@@ -1393,7 +1376,7 @@ Snippet:
   const performDeleteFile = async () => {
     if (!activePath || !fileToDelete) return;
     try {
-      await fetch(`/api/workspace/${encodePath(activePath)}/files/${fileToDelete}`, { method: 'DELETE' });
+      await apiCall(`/api/workspace/${encodePath(activePath)}/files/${fileToDelete}`, { method: 'DELETE' });
       fetchFiles(activePath);
       if (activeFile === fileToDelete) {
         setActiveFile(null);
@@ -1557,10 +1540,9 @@ Snippet:
                             setGithubToken('');
                             setIsGitHubConnected(false);
                             try {
-                              await fetch('/api/settings', {
+                              await apiCall('/api/settings', {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ githubToken: null }),
+                                body: { githubToken: null },
                               });
                               toast.success('GitHub account disconnected');
                             } catch (error) {
