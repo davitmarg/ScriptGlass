@@ -230,15 +230,15 @@ const OAUTH_PORT = 4567;
 const OAUTH_HOST = '127.0.0.1'; // Use explicit IPv4 to avoid localhost resolution issues
 
 ipcMain.handle('/api/auth/github/url', async () => {
-  const client_id = process.env.GITHUB_CLIENT_ID || 'Iv23liev9mUnatZ8W9S3';
+  const client_id = process.env.GITHUB_CLIENT_ID;
   const redirect_uri = `http://${OAUTH_HOST}:${OAUTH_PORT}/callback`;
   
-  if (!process.env.GITHUB_CLIENT_ID) {
-    console.warn('Warning: GITHUB_CLIENT_ID is not set in environment or .env file.');
+  if (!client_id) {
+    console.error('CRITICAL: GITHUB_CLIENT_ID is missing from environment. OAuth will fail.');
   }
 
   return { 
-    url: `https://github.com/login/oauth/authorize?client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=repo,user`,
+    url: `https://github.com/login/oauth/authorize?client_id=${client_id || 'ERROR_MISSING_ID'}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=repo,user`,
     isElectron: true
   };
 });
@@ -254,7 +254,7 @@ ipcMain.on('github-oauth-start', (event, url) => {
     
     if (urlObj.pathname === '/callback') {
       const code = urlObj.searchParams.get('code');
-      const client_id = process.env.GITHUB_CLIENT_ID || 'Iv23liev9mUnatZ8W9S3';
+      const client_id = process.env.GITHUB_CLIENT_ID;
       const client_secret = process.env.GITHUB_CLIENT_SECRET;
 
       console.log(`OAuth Callback received. Exchanging code for token...`);

@@ -16,7 +16,11 @@ const DEFAULT_STORAGE_DIR = path.join(os.homedir(), "Documents", "ScriptGlass");
 
 export class SettingsManager {
   private configPath: string;
-  private config: { baseProjectsDir: string; githubToken?: string; geminiKey?: string } = { baseProjectsDir: DEFAULT_STORAGE_DIR };
+  private config: { 
+    baseProjectsDir: string; 
+    githubToken?: string; 
+    geminiKey?: string;
+  } = { baseProjectsDir: DEFAULT_STORAGE_DIR };
 
   constructor(configPath: string) {
     this.configPath = configPath;

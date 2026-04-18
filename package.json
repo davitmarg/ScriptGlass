@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
-    "build:electron": "cross-env VITE_PLATFORM=electron vite build && esbuild main.js --bundle --platform=node --format=cjs --outfile=dist/main.cjs --external:electron --log-override:empty-import-meta=silent && shx cp preload.cjs dist/",
+    "build:electron": "cross-env VITE_PLATFORM=electron vite build && node scripts/build-electron.js && shx cp preload.cjs dist/",
     "dist": "npm run build:electron && electron-builder",
     "preview": "vite preview",
     "clean": "rm -rf dist dist_electron",
