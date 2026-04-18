@@ -2209,15 +2209,21 @@ Snippet:
         <footer className="h-[28px] glass-panel border-t flex items-center justify-between px-4 text-[11px] text-indigo-900/60 shrink-0">
           <div className="flex items-center gap-5">
             <div className="flex items-center gap-1.5 text-indigo-900 font-medium">
-              <GitBranch className="w-3.5 h-3.5" />
-              <span>
-                {gitStatus?.branch || 'main'}
-                {gitStatus && (
-                  gitStatus.status.files?.length > 0 || 
-                  (gitStatus.status.ahead ?? 0) > 0
-                ) ? (
-                  <span className="ml-1 text-indigo-600 font-bold" title="Uncommitted or unpushed changes">*</span>
-                ) : null}
+              <GitBranch className={`w-3.5 h-3.5 ${isGitHubConnected ? 'text-indigo-600' : 'text-gray-400'}`} />
+              <span className="flex items-center">
+                {!isGitHubConnected ? (
+                  <span className="text-gray-400 font-normal italic select-none">GitHub Disconnected</span>
+                ) : (
+                  <>
+                    {gitStatus?.branch || 'main'}
+                    {gitStatus && (
+                      gitStatus.status.files?.length > 0 || 
+                      (gitStatus.status.ahead ?? 0) > 0
+                    ) ? (
+                      <span className="ml-1 text-indigo-600 font-bold" title="Uncommitted or unpushed changes">*</span>
+                    ) : null}
+                  </>
+                )}
               </span>
             </div>
             <span>Page {currentPage} of {pageCount}</span>
@@ -2225,9 +2231,12 @@ Snippet:
           </div>
           
           <div className="flex items-center gap-5">
-            <div className="flex items-center gap-1.5 text-[#22c55e] font-semibold">
-              <span>Synced to GitHub</span>
-            </div>
+            {isGitHubConnected && (
+              <div className="flex items-center gap-1.5 text-[#22c55e] font-semibold">
+                <CloudUpload className="w-3 h-3" />
+                <span>Synced to GitHub</span>
+              </div>
+            )}
             <span>UTF-8</span>
             <span>Fountain 1.1</span>
           </div>
