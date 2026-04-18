@@ -188,7 +188,15 @@ export default function App() {
     }
   }, [terminalOutput]);
 
-  // Electron: Handle external links & GitHub Auth Callback
+  useEffect(() => {
+    const handleFocus = () => {
+      if (activePath) fetchGitStatus(activePath);
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [activePath]);
+
+  // Handle external links & GitHub Auth Callback
   useEffect(() => {
     if (isDesktop()) {
       const handleExternalClick = (e: MouseEvent) => {
@@ -2317,11 +2325,11 @@ Snippet:
                 ) : (
                   <>
                     {gitStatus?.branch || 'main'}
-                    {gitStatus && (
-                      gitStatus.status.files?.length > 0 || 
-                      (gitStatus.status.ahead ?? 0) > 0
-                    ) ? (
-                      <span className="ml-1 text-indigo-600 font-bold" title="Uncommitted or unpushed changes">*</span>
+                    {(hasUnsavedChanges || (gitStatus && (
+                      (gitStatus.status?.files?.length ?? 0) > 0 || 
+                      (gitStatus.status?.ahead ?? 0) > 0
+                    ))) ? (
+                      <span className="ml-0.5 text-indigo-600 font-bold" title="Unsaved or uncommitted changes">*</span>
                     ) : null}
                   </>
                 )}

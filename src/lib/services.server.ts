@@ -114,6 +114,32 @@ export class GitManager {
     return user ? user.login : null;
   }
 
+  async createGitHubRepo(token: string, repoName: string, isOrg: boolean = false, orgName: string | null = null) {
+    try {
+      const name = repoName.includes('/') ? repoName.split('/')[1] : repoName;
+      const url = isOrg && orgName ? `https://api.github.com/orgs/${orgName}/repos` : "https://api.github.com/user/repos";
+      
+      console.log(`Attempting to create GitHub repository: ${name} at ${url}`);
+      
+      await axios.post(url, {
+        name: name,
+        private: true,
+        auto_init: false
+      }, {
+        headers: { 
+          Authorization: `token ${token}`,
+          "User-Agent": "ScriptGlass-App",
+          "Accept": "application/vnd.github.v3+json"
+        }
+      });
+      console.log(`Successfully created repository: ${name}`);
+      return true;
+    } catch (error: any) {
+      console.error("GitHub Repo Creation Error:", error.response?.data || error.message);
+      return false;
+    }
+  }
+
   async initRepo() {
     try {
       await fs.access(path.join(this.absPath, ".git"));
@@ -173,7 +199,30 @@ export class GitManager {
       return { success: true };
     } catch (error: any) {
       if (error.message.includes("not found")) {
-        throw new Error(`Repository "${fullRepoPath}" not found on GitHub. Please make sure the repository exists in your GitHub account.`);
+        console.log(`Repository not found. Attempting to create it...`);
+        
+        let repoOnlyName = repoName;
+        let isOrg = false;
+        let orgName: string | null = null;
+        
+        if (repoName.includes('/')) {
+          const parts = repoName.split('/');
+          const username = await this.getGitHubUsername(token);
+          if (parts[0] !== username) {
+            isOrg = true;
+            orgName = parts[0];
+          }
+          repoOnlyName = parts[1];
+        }
+
+        const created = await this.createGitHubRepo(token, repoOnlyName, isOrg, orgName);
+        if (created) {
+          // Retry push
+          await this.git.push("origin", branch, ["--set-upstream"]);
+          return { success: true };
+        }
+        
+        throw new Error(`Repository "${fullRepoPath}" not found on GitHub and automatic creation failed. Please make sure the repository exists in your GitHub account or you have permissions to create it.`);
       }
       if (error.message.includes("does not match any")) {
         // Fallback or handle initial push
