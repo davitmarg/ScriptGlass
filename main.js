@@ -38,7 +38,8 @@ async function createWindow() {
   if (isDev) {
     win.loadURL(process.env.VITE_DEV_URL || 'http://localhost:3000');
   } else {
-    win.loadFile(path.join(__dirname, 'dist', 'index.html'));
+    // When bundled into dist/main.js, index.html is in the same folder
+    win.loadFile(path.join(__dirname, 'index.html'));
   }
 }
 
