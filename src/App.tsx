@@ -1346,12 +1346,33 @@ Snippet:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: githubToken }),
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
       
-      toast.success('Successfully retrieved latest from GitHub');
-      fetchFiles(activePath);
-      fetchGitStatus(activePath);
+      const contentType = res.headers.get('content-type');
+      if (!res.ok) {
+        if (contentType && contentType.includes('application/json')) {
+          const errData = await res.json();
+          throw new Error(errData.error || `Server error: ${res.status}`);
+        } else {
+          const text = await res.text();
+          throw new Error(`Server error: ${res.status}. ${text.substring(0, 100)}`);
+        }
+      }
+
+      if (contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        
+        if (data.message) {
+          toast.info(data.message);
+        } else {
+          toast.success('Successfully retrieved latest from GitHub');
+        }
+        
+        fetchFiles(activePath);
+        fetchGitStatus(activePath);
+      } else {
+        throw new Error('Server returned non-JSON response');
+      }
     } catch (error: any) {
       toast.error(`Failed to pull: ${error.message}`);
       console.error(error);

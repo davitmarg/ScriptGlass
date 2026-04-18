@@ -269,6 +269,10 @@ class GitManager {
   }
 
   async pull(token: string, repoName: string) {
+    if (!repoName) {
+      throw new Error("Repository name could not be determined from the folder path.");
+    }
+    console.log(`[GitManager] Pulling repo: ${repoName} into ${this.absPath}`);
     try {
       await this.initRepo();
       const slugifiedRepoName = repoName.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
@@ -594,7 +598,10 @@ async function startServer() {
       
       const absPath = decodePath(req.params.path);
       const git = new GitManager(absPath);
-      const result = await git.pull(token, path.basename(absPath));
+      
+      // Ensure repo name is valid even with trailing slashes
+      const repoName = path.basename(absPath.replace(/[/\\]$/, ""));
+      const result = await git.pull(token, repoName);
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ error: error.response?.data?.message || String(error) });
