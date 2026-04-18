@@ -111,7 +111,44 @@ export default function App() {
   const [terminalOutput, setTerminalOutput] = useState<TerminalOutput[]>([]);
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalHistory, setTerminalHistory] = useState<string[]>([]);
-  const [terminalHistoryIndex, setTerminalHistoryIndex] = useState(-1);
+  const [isBrowserOpen, setIsBrowserOpen] = useState(false);
+  const [browserData, setBrowserData] = useState<{ currentPath: string; parentPath: string; directories: string[]; sep: string }>({
+    currentPath: '',
+    parentPath: '',
+    directories: [],
+    sep: '/'
+  });
+
+  const fetchBrowseData = async (targetPath?: string) => {
+    try {
+      const url = targetPath ? `/api/browse?path=${encodeURIComponent(targetPath)}` : '/api/browse';
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.error) {
+        toast.error(data.error);
+        return;
+      }
+      setBrowserData(data);
+    } catch (error) {
+      toast.error('Failed to browse directories');
+    }
+  };
+
+  const handleBrowseNavigate = (dir: string) => {
+    const newPath = browserData.currentPath === browserData.sep ? `${browserData.sep}${dir}` : `${browserData.currentPath}${browserData.sep}${dir}`;
+    fetchBrowseData(newPath);
+  };
+
+  const handleBrowseBack = () => {
+    if (browserData.parentPath && browserData.parentPath !== browserData.currentPath) {
+      fetchBrowseData(browserData.parentPath);
+    }
+  };
+
+  const handleSelectFolder = () => {
+    setWorkspaceData({ ...workspaceData, path: browserData.currentPath });
+    setIsBrowserOpen(false);
+  };
   const [currentPage, setCurrentPage] = useState(1);
   const currentEditorFile = useRef<string | null>(null);
 
@@ -2280,12 +2317,25 @@ Snippet:
                 <div className="grid gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="workspacePath">{workspaceData.type === 'clone' ? 'Target Folder Path' : 'Absolute Folder Path'}</Label>
-                    <Input 
-                      id="workspacePath" 
-                      placeholder={settings.baseProjectsDir || "/path/to/folder"}
-                      value={workspaceData.path}
-                      onChange={(e) => setWorkspaceData({ ...workspaceData, path: e.target.value })}
-                    />
+                    <div className="flex gap-2">
+                      <Input 
+                        id="workspacePath" 
+                        placeholder={settings.baseProjectsDir || "/path/to/folder"}
+                        value={workspaceData.path}
+                        onChange={(e) => setWorkspaceData({ ...workspaceData, path: e.target.value })}
+                        className="flex-1"
+                      />
+                      <Button 
+                        variant="secondary" 
+                        className="h-10 px-3"
+                        onClick={() => {
+                          setIsBrowserOpen(true);
+                          fetchBrowseData(workspaceData.path);
+                        }}
+                      >
+                        Browse...
+                      </Button>
+                    </div>
                   </div>
 
                   {recentFolders.length > 0 && workspaceData.type === 'open' && (
@@ -2330,6 +2380,68 @@ Snippet:
               <Button onClick={handleOpenWorkspace}>
                 {workspaceData.type === 'clone' ? 'Clone & Open' : 
                  workspaceData.type === 'create' ? 'Create & Open' : 'Open Folder'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Folder Browser Dialog */}
+        <Dialog open={isBrowserOpen} onOpenChange={setIsBrowserOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Select Folder</DialogTitle>
+              <DialogDescription>
+                Navigate to the directory you want to open as your workspace.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="flex items-center gap-2 p-2 bg-indigo-50/50 rounded-lg border border-indigo-100 overflow-hidden">
+                <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span className="text-[11px] font-mono text-indigo-900 truncate" title={browserData.currentPath}>
+                  {browserData.currentPath || 'Loading...'}
+                </span>
+              </div>
+              
+              <div className="flex flex-col border rounded-lg h-[300px] overflow-hidden bg-white">
+                <div className="p-2 border-bottom bg-gray-50/80 flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Directories</span>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-6 text-[10px] px-2"
+                    onClick={handleBrowseBack}
+                    disabled={!browserData.parentPath || browserData.parentPath === browserData.currentPath}
+                  >
+                    <ChevronLeft className="w-3 h-3 mr-1" />
+                    Back
+                  </Button>
+                </div>
+                <ScrollArea className="flex-1">
+                  <div className="p-1">
+                    {browserData.directories.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-gray-400 italic">
+                        No subdirectories found
+                      </div>
+                    ) : (
+                      browserData.directories.map((dir) => (
+                        <button
+                          key={dir}
+                          onClick={() => handleBrowseNavigate(dir)}
+                          className="w-full text-left text-xs px-3 py-2 rounded-md hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-3 transition-colors group"
+                        >
+                          <Folder className="w-3.5 h-3.5 text-indigo-300 group-hover:text-indigo-500" />
+                          <span className="truncate">{dir}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setIsBrowserOpen(false)}>Cancel</Button>
+              <Button onClick={handleSelectFolder} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                Select This Folder
               </Button>
             </DialogFooter>
           </DialogContent>

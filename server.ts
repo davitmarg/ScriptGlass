@@ -333,6 +333,26 @@ async function startServer() {
     }
   });
 
+  app.get("/api/browse", async (req, res) => {
+    try {
+      const startPath = (req.query.path as string) || settings.baseProjectsDir || os.homedir();
+      const items = await fs.readdir(startPath, { withFileTypes: true });
+      const directories = items
+        .filter(item => item.isDirectory())
+        .map(item => item.name)
+        .sort();
+      
+      res.json({
+        currentPath: startPath,
+        parentPath: path.dirname(startPath),
+        directories,
+        sep: path.sep
+      });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
   app.get("/api/workspace/:path/files", async (req, res) => {
     try {
       const absPath = decodePath(req.params.path);
