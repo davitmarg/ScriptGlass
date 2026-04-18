@@ -15,11 +15,15 @@ function createWindow() {
     },
   });
 
-  // In production, load the built index.html
-  // win.loadFile('dist/index.html');
-  
-  // In development, load from Vite dev server if running
-  win.loadURL(process.env.VITE_DEV_URL || 'http://localhost:3000');
+  // Automatically detect environment
+  const isDev = process.env.VITE_DEV_URL || process.env.NODE_ENV === 'development';
+
+  if (isDev) {
+    win.loadURL(process.env.VITE_DEV_URL || 'http://localhost:3000');
+  } else {
+    // Correctly load the built file in the ASAR package
+    win.loadFile(path.join(__dirname, 'dist', 'index.html'));
+  }
 }
 
 app.whenReady().then(() => {
