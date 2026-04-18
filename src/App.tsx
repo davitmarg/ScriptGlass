@@ -2399,28 +2399,28 @@ Snippet:
 
         {/* Folder Browser Dialog */}
         <Dialog open={isBrowserOpen} onOpenChange={setIsBrowserOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
+          <DialogContent className="max-w-md max-h-[90vh] flex flex-col p-0 overflow-hidden">
+            <DialogHeader className="p-6 pb-0">
               <DialogTitle>Select Folder</DialogTitle>
               <DialogDescription>
                 Navigate to the directory you want to open as your workspace.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="flex items-center gap-2 p-2 bg-indigo-50/50 rounded-lg border border-indigo-100 overflow-hidden">
+            <div className="flex-1 overflow-hidden flex flex-col gap-4 p-6">
+              <div className="flex items-center gap-2 p-2 bg-indigo-50/50 rounded-lg border border-indigo-100 overflow-hidden shrink-0">
                 <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
                 <span className="text-[11px] font-mono text-indigo-900 truncate" title={browserData.currentPath}>
                   {browserData.currentPath || 'Loading...'}
                 </span>
               </div>
               
-              <div className="flex flex-col border rounded-lg h-[450px] overflow-hidden bg-white shadow-inner">
-                <div className="p-2 border-bottom bg-gray-50/80 flex items-center justify-between">
+              <div className="flex flex-col border rounded-lg flex-1 min-h-[300px] max-h-[450px] overflow-hidden bg-white shadow-inner">
+                <div className="p-2 border-b bg-gray-50/80 flex items-center justify-between shrink-0">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Directories</span>
                   <Button 
                     variant="ghost" 
                     size="sm" 
-                    className="h-6 text-[10px] px-2"
+                    className="h-6 text-[10px] px-2 font-bold"
                     onClick={handleBrowseBack}
                     disabled={browserData.currentPath === 'ROOT'}
                   >
@@ -2428,29 +2428,27 @@ Snippet:
                     Back
                   </Button>
                 </div>
-                <ScrollArea className="flex-1">
-                  <div className="p-1">
-                    {browserData.directories.length === 0 ? (
-                      <div className="p-8 text-center text-xs text-gray-400 italic">
-                        No subdirectories found
-                      </div>
-                    ) : (
-                      browserData.directories.map((dir) => (
-                        <button
-                          key={dir}
-                          onClick={() => handleBrowseNavigate(dir)}
-                          className="w-full text-left text-xs px-3 py-2 rounded-md hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-3 transition-colors group"
-                        >
-                          <Folder className="w-3.5 h-3.5 text-indigo-300 group-hover:text-indigo-500" />
-                          <span className="truncate">{dir}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </ScrollArea>
+                <div className="flex-1 overflow-y-auto p-1 custom-scrollbar">
+                  {browserData.directories.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-gray-400 italic">
+                      No subdirectories found
+                    </div>
+                  ) : (
+                    browserData.directories.map((dir) => (
+                      <button
+                        key={dir}
+                        onClick={() => handleBrowseNavigate(dir)}
+                        className="w-full text-left text-xs px-3 py-2 rounded-md hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-3 transition-colors group"
+                      >
+                        <Folder className="w-3.5 h-3.5 text-indigo-300 group-hover:text-indigo-500" />
+                        <span className="truncate">{dir}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className="p-6 pt-0 gap-2">
               <Button variant="outline" onClick={() => setIsBrowserOpen(false)}>Cancel</Button>
               <Button onClick={handleSelectFolder} className="bg-indigo-600 hover:bg-indigo-700 text-white">
                 Select This Folder
