@@ -16,6 +16,7 @@ import {
   Globe,
   Link as LinkIcon,
   Download,
+  Upload,
   RefreshCw,
   Loader2,
   Type,
@@ -75,6 +76,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [githubToken, setGithubToken] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [isEditorReady, setIsEditorReady] = useState(false);
   const [projectKey, setProjectKey] = useState(0);
@@ -1331,6 +1333,33 @@ Snippet:
     }
   };
 
+  const handlePull = async () => {
+    if (!activePath) return;
+    if (!githubToken) {
+      toast.error('Please connect your GitHub account first');
+      return;
+    }
+    setIsPulling(true);
+    try {
+      const res = await fetch(`/api/workspace/${encodePath(activePath)}/git/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: githubToken }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      
+      toast.success('Successfully retrieved latest from GitHub');
+      fetchFiles(activePath);
+      fetchGitStatus(activePath);
+    } catch (error: any) {
+      toast.error(`Failed to pull: ${error.message}`);
+      console.error(error);
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
   const confirmDeleteFile = (filename: string) => {
     setFileToDelete(filename);
     setIsDeleteConfirmOpen(true);
@@ -1533,8 +1562,22 @@ Snippet:
                       </div>
                     )}
                   </div>
-                  <DialogFooter>
-                    <Button onClick={handleSync} disabled={isSyncing || !isGitHubConnected || !activePath}>
+                  <DialogFooter className="gap-2">
+                    <Button 
+                      variant="outline" 
+                      onClick={handlePull} 
+                      disabled={isPulling || isSyncing || !isGitHubConnected || !activePath}
+                      className="gap-2"
+                    >
+                      <Download className={`w-4 h-4 ${isPulling ? 'animate-bounce' : ''}`} />
+                      {isPulling ? 'Getting Latest...' : 'Get Latest'}
+                    </Button>
+                    <Button 
+                      onClick={handleSync} 
+                      disabled={isSyncing || isPulling || !isGitHubConnected || !activePath}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+                    >
+                      <Upload className={`w-4 h-4 ${isSyncing ? 'animate-bounce' : ''}`} />
                       {isSyncing ? 'Syncing...' : 'Sync Now'}
                     </Button>
                   </DialogFooter>

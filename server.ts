@@ -160,8 +160,12 @@ class GitManager {
   }
 
   async getBranch() {
-    const branch = await this.git.branch();
-    return branch.current;
+    try {
+      const branch = await this.git.branch();
+      return branch.current || null;
+    } catch {
+      return null;
+    }
   }
 
   async push(token: string, repoName: string) {
@@ -169,65 +173,10 @@ class GitManager {
       // Slugify repo name for GitHub
       const slugifiedRepoName = repoName.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 
-      // 1. Get user info to determine username
-      let username = "";
-      try {
-        const userRes = await axios.get("https://api.github.com/user", {
-          headers: { 
-            Authorization: `token ${token}`,
-            "User-Agent": "ScriptGlass-App",
-            Accept: "application/vnd.github+json"
-          },
-        });
-        username = userRes.data.login;
-      } catch (error: any) {
-        console.error("Failed to get user info:", error.response?.data || error.message);
-        if (error.response?.data?.message === "Resource not accessible by integration") {
-          throw new Error("GitHub App permissions issue: Please ensure your GitHub App has 'User' permissions enabled (Read-only is enough for username).");
-        }
-        throw error;
-      }
+      const username = await this.getGitHubUsername(token);
 
       // 2. Ensure repository exists on GitHub
-      try {
-        await axios.get(`https://api.github.com/repos/${username}/${slugifiedRepoName}`, {
-          headers: { 
-            Authorization: `token ${token}`,
-            "User-Agent": "ScriptGlass-App",
-            Accept: "application/vnd.github+json"
-          },
-        });
-      } catch (error: any) {
-        if (error.response?.status === 404) {
-          // Create repo if it doesn't exist
-          try {
-            await axios.post(
-              "https://api.github.com/user/repos",
-              {
-                name: slugifiedRepoName,
-                description: `ScriptGlass Project: ${repoName}`,
-                private: true,
-              },
-              {
-                headers: { 
-                  Authorization: `token ${token}`,
-                  "User-Agent": "ScriptGlass-App",
-                  Accept: "application/vnd.github+json"
-                },
-              }
-            );
-          } catch (createError: any) {
-            console.error("Failed to create repository:", createError.response?.data || createError.message);
-            if (createError.response?.data?.message === "Resource not accessible by integration") {
-              throw new Error("GitHub App permissions issue: Please ensure your GitHub App has 'Contents' and 'Administration' write permissions.");
-            }
-            throw createError;
-          }
-        } else {
-          console.error("Failed to check repository existence:", error.response?.data || error.message);
-          throw error;
-        }
-      }
+      await this.ensureRepoExists(token, username, slugifiedRepoName, repoName);
 
       // 3. Configure remote and push
       // Using oauth2 as username is the standard for OAuth tokens
@@ -254,6 +203,177 @@ class GitManager {
         console.error("GitHub API Error Response:", error.response.data);
       }
       console.error("Git Push Error:", error);
+      throw error;
+    }
+  }
+
+  private async getGitHubUsername(token: string): Promise<string> {
+    try {
+      const userRes = await axios.get("https://api.github.com/user", {
+        headers: { 
+          Authorization: `token ${token}`,
+          "User-Agent": "ScriptGlass-App",
+          Accept: "application/vnd.github+json"
+        },
+      });
+      return userRes.data.login;
+    } catch (error: any) {
+      console.error("Failed to get user info:", error.response?.data || error.message);
+      if (error.response?.data?.message === "Resource not accessible by integration") {
+        throw new Error("GitHub App permissions issue: Please ensure your GitHub App has 'User' permissions enabled (Read-only is enough for username).");
+      }
+      throw error;
+    }
+  }
+
+  private async ensureRepoExists(token: string, username: string, slugifiedRepoName: string, repoName: string) {
+    try {
+      await axios.get(`https://api.github.com/repos/${username}/${slugifiedRepoName}`, {
+        headers: { 
+          Authorization: `token ${token}`,
+          "User-Agent": "ScriptGlass-App",
+          Accept: "application/vnd.github+json"
+        },
+      });
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        // Create repo if it doesn't exist
+        try {
+          await axios.post(
+            "https://api.github.com/user/repos",
+            {
+              name: slugifiedRepoName,
+              description: `ScriptGlass Project: ${repoName}`,
+              private: true,
+            },
+            {
+              headers: { 
+                Authorization: `token ${token}`,
+                "User-Agent": "ScriptGlass-App",
+                Accept: "application/vnd.github+json"
+              },
+            }
+          );
+        } catch (createError: any) {
+          console.error("Failed to create repository:", createError.response?.data || createError.message);
+          if (createError.response?.data?.message === "Resource not accessible by integration") {
+            throw new Error("GitHub App permissions issue: Please ensure your GitHub App has 'Contents' and 'Administration' write permissions.");
+          }
+          throw createError;
+        }
+      } else {
+        console.error("Failed to check repository existence:", error.response?.data || error.message);
+        throw error;
+      }
+    }
+  }
+
+  async pull(token: string, repoName: string) {
+    try {
+      await this.initRepo();
+      const slugifiedRepoName = repoName.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
+      const username = await this.getGitHubUsername(token);
+      const remoteUrl = `https://oauth2:${token}@github.com/${username}/${slugifiedRepoName}.git`;
+      
+      const remotes = await this.git.getRemotes();
+      if (remotes.find(r => r.name === "origin")) {
+        await this.git.remote(["set-url", "origin", remoteUrl]);
+      } else {
+        await this.git.addRemote("origin", remoteUrl);
+      }
+
+      // Fetch all to discover branches
+      await this.git.fetch("origin");
+
+      const localBranch = await this.getBranch();
+      const remoteBranches = await this.git.branch(["-r"]).then(r => r.all);
+      
+      let targetRemoteBranch = "";
+      
+      // 1. Prefer current local branch if it exists on remote
+      if (localBranch && remoteBranches.includes(`origin/${localBranch}`)) {
+        targetRemoteBranch = `origin/${localBranch}`;
+      } 
+      // 2. Otherwise, check for standard default branches
+      else if (remoteBranches.includes("origin/main")) {
+        targetRemoteBranch = "origin/main";
+      } else if (remoteBranches.includes("origin/master")) {
+        targetRemoteBranch = "origin/master";
+      }
+
+      if (!targetRemoteBranch) {
+        return { success: true, message: "Remote branch does not exist yet; nothing to pull." };
+      }
+
+      const targetBranchShort = targetRemoteBranch.replace("origin/", "");
+
+      // Handle conflicts before potentially switching or resetting
+      try {
+        const status = await this.git.status();
+        const log = await this.git.log().catch(() => ({ all: [] }));
+        const hasCommits = log.all.length > 0;
+        
+        let commonBase = "";
+        if (hasCommits) {
+          try {
+            commonBase = (await this.git.raw(["merge-base", "HEAD", targetRemoteBranch])).trim();
+          } catch (e) {}
+        }
+
+        let remoteChanges: string[] = [];
+        if (commonBase) {
+          const remoteDiff = await this.git.diff(["--name-only", commonBase, targetRemoteBranch]);
+          remoteChanges = remoteDiff.split("\n").filter(Boolean);
+        } else {
+          // No common base, all remote files are potential conflicts
+          const lsRemote = await this.git.raw(["ls-tree", "-r", "--name-only", targetRemoteBranch]);
+          remoteChanges = lsRemote.split("\n").filter(Boolean);
+        }
+
+        const localChangesSet = new Set([
+          ...status.modified, 
+          ...status.not_added, 
+          ...status.created, 
+          ...status.deleted, 
+          ...status.renamed.map(r => r.to)
+        ]);
+        
+        // If we have history, also check what diverged from base
+        if (commonBase) {
+          const localDiff = await this.git.diff(["--name-only", commonBase]);
+          localDiff.split("\n").filter(Boolean).forEach(f => localChangesSet.add(f));
+        }
+
+        const conflicts = remoteChanges.filter(f => localChangesSet.has(f));
+
+        if (conflicts.length > 0) {
+          const timestamp = new Date().toISOString().split('T')[0];
+          for (const file of conflicts) {
+            const filePath = path.join(this.absPath, file);
+            try {
+              await fs.access(filePath);
+              const ext = path.extname(file);
+              const base = path.basename(file, ext);
+              const backupName = `${base}_Backup_${timestamp}${ext}`;
+              await fs.rename(filePath, path.join(this.absPath, backupName));
+            } catch (e) {}
+          }
+        }
+      } catch (e) {
+        console.error("Conflict detection failed:", e);
+      }
+
+      // Switch or reset
+      if (localBranch !== targetBranchShort) {
+        // Use -B to create/reset local branch to match remote
+        await this.git.checkout(["-B", targetBranchShort, targetRemoteBranch]);
+      } else {
+        await this.git.reset(["--hard", targetRemoteBranch]);
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      console.error("Git Pull Error:", error);
       throw error;
     }
   }
@@ -458,8 +578,23 @@ async function startServer() {
       
       const absPath = decodePath(req.params.path);
       const git = new GitManager(absPath);
+      await git.initRepo();
       await git.commit(commitMessage || `Sync ${new Date().toISOString()}`, token);
       const result = await git.push(token, path.basename(absPath));
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.response?.data?.message || String(error) });
+    }
+  });
+
+  app.post("/api/workspace/:path/git/pull", async (req, res) => {
+    try {
+      const { token } = req.body;
+      if (!token) return res.status(400).json({ error: "GitHub token is required" });
+      
+      const absPath = decodePath(req.params.path);
+      const git = new GitManager(absPath);
+      const result = await git.pull(token, path.basename(absPath));
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ error: error.response?.data?.message || String(error) });
