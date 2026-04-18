@@ -112,11 +112,12 @@ export default function App() {
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalHistory, setTerminalHistory] = useState<string[]>([]);
   const [isBrowserOpen, setIsBrowserOpen] = useState(false);
-  const [browserData, setBrowserData] = useState<{ currentPath: string; parentPath: string; directories: string[]; sep: string }>({
+  const [browserData, setBrowserData] = useState<{ currentPath: string; parentPath: string; directories: string[]; sep: string; isRoot?: boolean }>({
     currentPath: '',
     parentPath: '',
     directories: [],
-    sep: '/'
+    sep: '/',
+    isRoot: false
   });
 
   const fetchBrowseData = async (targetPath?: string) => {
@@ -135,12 +136,22 @@ export default function App() {
   };
 
   const handleBrowseNavigate = (dir: string) => {
-    const newPath = browserData.currentPath === browserData.sep ? `${browserData.sep}${dir}` : `${browserData.currentPath}${browserData.sep}${dir}`;
+    let newPath = '';
+    
+    if (browserData.currentPath === 'ROOT') {
+      // dir already contains drive letter and separator
+      newPath = dir;
+    } else {
+      newPath = browserData.currentPath.endsWith(browserData.sep) 
+        ? `${browserData.currentPath}${dir}` 
+        : `${browserData.currentPath}${browserData.sep}${dir}`;
+    }
+    
     fetchBrowseData(newPath);
   };
 
   const handleBrowseBack = () => {
-    if (browserData.parentPath && browserData.parentPath !== browserData.currentPath) {
+    if (browserData.parentPath) {
       fetchBrowseData(browserData.parentPath);
     }
   };
@@ -2410,7 +2421,7 @@ Snippet:
                     size="sm" 
                     className="h-6 text-[10px] px-2"
                     onClick={handleBrowseBack}
-                    disabled={!browserData.parentPath || browserData.parentPath === browserData.currentPath}
+                    disabled={browserData.currentPath === 'ROOT'}
                   >
                     <ChevronLeft className="w-3 h-3 mr-1" />
                     Back

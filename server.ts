@@ -335,18 +335,52 @@ async function startServer() {
 
   app.get("/api/browse", async (req, res) => {
     try {
-      const startPath = (req.query.path as string) || settings.baseProjectsDir || os.homedir();
+      const isWindows = os.platform() === 'win32';
+      let startPath = (req.query.path as string) || settings.baseProjectsDir || os.homedir();
+      
+      // If path is empty, we show drives on Windows or system root on Linux
+      if (req.query.path === 'ROOT') {
+        if (isWindows) {
+          // List Windows drives
+          return new Promise((resolve) => {
+            exec('wmic logicaldisk get name', (error, stdout) => {
+              if (error) {
+                res.status(500).json({ error: 'Could not list drives' });
+                return resolve();
+              }
+              const drives = stdout.split('\r\n')
+                .filter(value => /[A-Za-z]:/.test(value))
+                .map(value => value.trim() + path.sep);
+              
+              res.json({
+                currentPath: 'ROOT',
+                parentPath: 'ROOT',
+                directories: drives,
+                sep: path.sep,
+                isRoot: true
+              });
+              resolve();
+            });
+          });
+        } else {
+          startPath = '/';
+        }
+      }
+
       const items = await fs.readdir(startPath, { withFileTypes: true });
       const directories = items
         .filter(item => item.isDirectory())
         .map(item => item.name)
         .sort();
       
+      const parentPath = path.dirname(startPath);
+      
       res.json({
         currentPath: startPath,
-        parentPath: path.dirname(startPath),
+        parentPath: parentPath === startPath ? (isWindows ? 'ROOT' : startPath) : parentPath,
         directories,
-        sep: path.sep
+        sep: path.sep,
+        isRoot: parentPath === startPath && !isWindows
       });
     } catch (error) {
       res.status(500).json({ error: String(error) });
