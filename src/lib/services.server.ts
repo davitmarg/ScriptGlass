@@ -85,7 +85,7 @@ export class GitManager {
     this.git = simpleGit(this.absPath);
   }
 
-  async getGitHubUsername(token: string): Promise<string | null> {
+  async getGitHubUser(token: string): Promise<{ login: string; name: string; email: string } | null> {
     try {
       const response = await axios.get("https://api.github.com/user", {
         headers: { 
@@ -93,11 +93,21 @@ export class GitManager {
           "User-Agent": "ScriptGlass-App"
         }
       });
-      return response.data.login;
+      const { login, name, email } = response.data;
+      return { 
+        login, 
+        name: name || login, 
+        email: email || `${login}@users.noreply.github.com` 
+      };
     } catch (error) {
-      console.error("GitHub Username Fetch Error:", error);
+      console.error("GitHub User Fetch Error:", error);
       return null;
     }
+  }
+
+  async getGitHubUsername(token: string): Promise<string | null> {
+    const user = await this.getGitHubUser(token);
+    return user ? user.login : null;
   }
 
   async initRepo() {
@@ -116,6 +126,20 @@ export class GitManager {
   }
 
   async commit(message: string, token: string) {
+    // Ensure user identity is set
+    try {
+      const config = await this.git.listConfig();
+      if (!config.all['user.name'] || !config.all['user.email'] || config.all['user.email'].includes('root@localhost')) {
+        const user = await this.getGitHubUser(token);
+        if (user) {
+          await this.git.addConfig('user.name', user.name);
+          await this.git.addConfig('user.email', user.email);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to set git config:", e);
+    }
+
     await this.git.add(".");
     await this.git.commit(message);
   }
