@@ -44,6 +44,7 @@ async function createWindow() {
     width: 1200,
     height: 800,
     frame: false, // Frameless window
+    titleBarStyle: 'hidden', // Native controls hidden
     webPreferences: {
       autoHideMenuBar: true,
       contextIsolation: true,

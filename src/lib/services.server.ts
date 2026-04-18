@@ -85,6 +85,21 @@ export class GitManager {
     this.git = simpleGit(this.absPath);
   }
 
+  async getGitHubUsername(token: string): Promise<string | null> {
+    try {
+      const response = await axios.get("https://api.github.com/user", {
+        headers: { 
+          Authorization: `token ${token}`,
+          "User-Agent": "ScriptGlass-App"
+        }
+      });
+      return response.data.login;
+    } catch (error) {
+      console.error("GitHub Username Fetch Error:", error);
+      return null;
+    }
+  }
+
   async initRepo() {
     try {
       await fs.access(path.join(this.absPath, ".git"));
@@ -106,7 +121,17 @@ export class GitManager {
   }
 
   async push(token: string, repoName: string) {
-    const remote = `https://x-access-token:${token}@github.com/${repoName}.git`;
+    let fullRepoPath = repoName;
+    
+    // If repoName is just 'metro' instead of 'user/metro', try to prefix with username
+    if (!repoName.includes('/')) {
+      const username = await this.getGitHubUsername(token);
+      if (username) {
+        fullRepoPath = `${username}/${repoName}`;
+      }
+    }
+
+    const remote = `https://x-access-token:${token}@github.com/${fullRepoPath}.git`;
     try {
       await this.git.addRemote("origin", remote);
     } catch (e) {}
@@ -119,6 +144,9 @@ export class GitManager {
       await this.git.push("origin", branch, ["--set-upstream"]);
       return { success: true };
     } catch (error: any) {
+      if (error.message.includes("not found")) {
+        throw new Error(`Repository "${fullRepoPath}" not found on GitHub. Please make sure the repository exists in your GitHub account.`);
+      }
       if (error.message.includes("does not match any")) {
         // Fallback or handle initial push
         await this.git.push("origin", branch);
@@ -129,7 +157,15 @@ export class GitManager {
   }
 
   async pull(token: string, repoName: string) {
-    const remote = `https://x-access-token:${token}@github.com/${repoName}.git`;
+    let fullRepoPath = repoName;
+    if (!repoName.includes('/')) {
+      const username = await this.getGitHubUsername(token);
+      if (username) {
+        fullRepoPath = `${username}/${repoName}`;
+      }
+    }
+    
+    const remote = `https://x-access-token:${token}@github.com/${fullRepoPath}.git`;
     try {
       await this.git.addRemote("origin", remote);
     } catch (e) {
@@ -162,33 +198,47 @@ export class GitManager {
     // Merge conflict backup logic
     try {
       const targetRemoteBranch = targetBranch;
-      const mergeBase = await this.git.revparse(['--merge-base', 'HEAD', targetRemoteBranch]);
-      const diff = await this.git.diff(['--name-only', mergeBase, targetRemoteBranch]);
-      const remoteChanges = diff.split('\n').filter(f => f.trim());
       
-      const localStatus = await this.git.status();
-      const localChanges = [
-        ...localStatus.modified,
-        ...localStatus.not_added,
-        ...localStatus.created,
-        ...localStatus.deleted,
-        ...localStatus.renamed.map(r => r.to)
-      ];
-      const localChangesSet = new Set(localChanges);
+      // Check if HEAD points to a valid commit
+      let hasHead = true;
+      try {
+        await this.git.revparse(['HEAD']);
+      } catch (e) {
+        hasHead = false;
+      }
 
-      const conflicts = remoteChanges.filter(f => localChangesSet.has(f));
+      if (hasHead) {
+        const mergeBase = await this.git.revparse(['--merge-base', 'HEAD', targetRemoteBranch]).catch(() => '');
+        
+        if (mergeBase) {
+          const diff = await this.git.diff(['--name-only', mergeBase, targetRemoteBranch]);
+          const remoteChanges = diff.split('\n').filter(f => f.trim());
+          
+          const localStatus = await this.git.status();
+          const localChanges = [
+            ...localStatus.modified,
+            ...localStatus.not_added,
+            ...localStatus.created,
+            ...localStatus.deleted,
+            ...localStatus.renamed.map(r => r.to)
+          ];
+          const localChangesSet = new Set(localChanges);
 
-      if (conflicts.length > 0) {
-        const timestamp = new Date().toISOString().split('T')[0];
-        for (const file of conflicts) {
-          const filePath = path.join(this.absPath, file);
-          try {
-            await fs.access(filePath);
-            const ext = path.extname(file);
-            const base = path.basename(file, ext);
-            const backupName = `${base}_Backup_${timestamp}${ext}`;
-            await fs.rename(filePath, path.join(this.absPath, backupName));
-          } catch (e) {}
+          const conflicts = remoteChanges.filter(f => localChangesSet.has(f));
+
+          if (conflicts.length > 0) {
+            const timestamp = new Date().toISOString().split('T')[0];
+            for (const file of conflicts) {
+              const filePath = path.join(this.absPath, file);
+              try {
+                await fs.access(filePath);
+                const ext = path.extname(file);
+                const base = path.basename(file, ext);
+                const backupName = `${base}_Backup_${timestamp}${ext}`;
+                await fs.rename(filePath, path.join(this.absPath, backupName));
+              } catch (e) {}
+            }
+          }
         }
       }
     } catch (e) {
@@ -255,7 +305,26 @@ export async function browseFolders(targetPath: string | null, baseDir: string) 
 
   try {
     const absoluteStartPath = path.resolve(startPath);
-    const items = await fs.readdir(absoluteStartPath, { withFileTypes: true });
+    let items;
+    try {
+       items = await fs.readdir(absoluteStartPath, { withFileTypes: true });
+    } catch (e) {
+       // If we can't read this directory, go to ROOT on Windows or just throw
+       // Only recurse IF we are NOT already trying to browse ROOT
+       if (isWindows && targetPath !== 'ROOT' && startPath !== 'ROOT') {
+          return await browseFolders('ROOT', baseDir);
+       }
+       // If readdir failed, return empty directories instead of throwing
+       // which causes the 500/Failed to browse error
+       return {
+         currentPath: absoluteStartPath,
+         parentPath: (isWindows && /^[A-Z]:\\?$/i.test(absoluteStartPath)) ? 'ROOT' : path.dirname(absoluteStartPath),
+         directories: [],
+         sep: path.sep,
+         isRoot: isWindows && /^[A-Z]:\\?$/i.test(absoluteStartPath)
+       };
+    }
+
     const directories = items
       .filter(item => item.isDirectory() && !item.name.startsWith('.'))
       .map(item => item.name)
@@ -273,9 +342,6 @@ export async function browseFolders(targetPath: string | null, baseDir: string) 
       isRoot: isAtSystemRoot || isAtDriveRoot
     };
   } catch (error) {
-    if (isWindows && targetPath !== 'ROOT') {
-      return await browseFolders('ROOT', baseDir);
-    }
     throw error;
   }
 }

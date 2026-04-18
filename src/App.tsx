@@ -414,7 +414,7 @@ export default function App() {
         
         if (titlePage.title) {
           doc.setFont('courier', 'bold');
-          const titleLines = doc.splitTextToSize(titlePage.title.toUpperCase(), 5.0);
+          const titleLines = doc.splitTextToSize(titlePage.title, 5.0);
           titleLines.forEach((line: string) => {
             doc.text(line, 4.25, titleY, { align: 'center' });
             titleY += 0.25;
@@ -1427,8 +1427,8 @@ Snippet:
             </div>
           )}
 
-          <div className="text-[12px] font-semibold text-indigo-900/60 uppercase tracking-wider flex-1 flex items-center gap-2 overflow-hidden">
-            <span className="shrink-0">ScriptGlass</span>
+          <div className="text-[12px] font-semibold text-indigo-900/60 flex-1 flex items-center gap-2 overflow-hidden tracking-wider">
+            <span className="shrink-0 uppercase">ScriptGlass</span>
             {activePath && (
               <>
                 <span className="opacity-40 shrink-0">/</span>
@@ -1438,7 +1438,7 @@ Snippet:
             {activeFile && (
               <>
                 <span className="opacity-40 shrink-0">/</span>
-                <span className="text-indigo-950 font-bold flex items-center gap-1 truncate">
+                <span className="text-indigo-950 font-bold flex items-center gap-1 truncate font-mono">
                   {activeFile}
                   {hasUnsavedChanges && <span className="text-indigo-600 drop-shadow-sm shrink-0">*</span>}
                 </span>
@@ -2080,7 +2080,7 @@ Snippet:
                             className={`w-full text-left px-3 py-2 rounded-lg transition-all group ${activeBlockId === block.id ? 'bg-indigo-50 border-l-2 border-indigo-500' : 'hover:bg-indigo-50/50'}`}
                           >
                             <div className="text-[10px] text-indigo-900/40 font-mono mb-0.5">SCENE {idx + 1}</div>
-                            <div className="text-xs font-bold text-indigo-900 truncate uppercase">
+                            <div className="text-xs font-bold text-indigo-900 truncate">
                               {block.content || 'Untitled Scene'}
                             </div>
                           </button>
