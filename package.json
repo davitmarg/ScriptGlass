@@ -2,13 +2,15 @@
   "name": "scriptglass",
   "productName": "ScriptGlass",
   "version": "1.0.0",
+  "description": "A minimalist, Git-powered screenwriting application using the Fountain format.",
+  "author": "ScriptGlass Team",
   "private": true,
   "type": "module",
-  "main": "dist/main.js",
+  "main": "dist/main.cjs",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
-    "build:electron": "cross-env VITE_PLATFORM=electron vite build && esbuild main.js --bundle --platform=node --format=esm --outfile=dist/main.js --external:electron --external:axios --external:simple-git && shx cp preload.cjs dist/",
+    "build:electron": "cross-env VITE_PLATFORM=electron vite build && esbuild main.js --bundle --platform=node --format=cjs --outfile=dist/main.cjs --external:electron --define:import.meta.url=\"'file://'\" && shx cp preload.cjs dist/",
     "dist": "npm run build:electron && electron-builder",
     "preview": "vite preview",
     "clean": "rm -rf dist dist_electron",
@@ -61,12 +63,14 @@
     "files": [
       "dist/**/*",
       "preload.cjs",
-      "package.json"
+      "package.json",
+      "!node_modules"
     ],
     "win": {
       "target": "portable",
       "icon": "public/icon.ico"
     },
-    "asar": true
+    "asar": true,
+    "includeSubdirectories": true
   }
 }

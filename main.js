@@ -30,8 +30,8 @@ import {
   browseFolders 
 } from './src/lib/services.server.ts';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const _filename = (typeof import.meta !== 'undefined' && import.meta.url) ? fileURLToPath(import.meta.url) : __filename;
+const _dirname = (typeof import.meta !== 'undefined' && import.meta.url) ? path.dirname(_filename) : __dirname;
 
 const CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
 const settings = new SettingsManager(CONFIG_FILE);
@@ -49,7 +49,7 @@ async function createWindow() {
       autoHideMenuBar: true,
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(_dirname, 'preload.cjs'),
     },
   });
 
@@ -59,7 +59,7 @@ async function createWindow() {
     win.loadURL(process.env.VITE_DEV_URL || 'http://localhost:3000');
   } else {
     // When bundled into dist/main.js, index.html is in the same folder
-    win.loadFile(path.join(__dirname, 'index.html'));
+    win.loadFile(path.join(_dirname, 'index.html'));
   }
 }
 
