@@ -49,6 +49,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { parseFountain } from '@/src/lib/editor-engine';
 import { GitStatus, GitLogEntry } from '@/src/types';
+import { apiCall, getPlatform, isDesktop } from '@/src/lib/platform';
 
 type BlockType = 'scene' | 'action' | 'character' | 'parenthetical' | 'dialogue' | 'transition' | 'shot' | 'general';
 
@@ -126,8 +127,7 @@ export default function App() {
   const fetchBrowseData = async (targetPath?: string) => {
     try {
       const url = targetPath ? `/api/browse?path=${encodeURIComponent(targetPath)}` : '/api/browse';
-      const res = await fetch(url);
-      const data = await res.json();
+      const data = await apiCall(url);
       if (data.error) {
         toast.error(data.error);
         return;
@@ -180,6 +180,23 @@ export default function App() {
     }
   }, [terminalOutput]);
 
+  // Electron: Handle external links
+  useEffect(() => {
+    if (isDesktop()) {
+      const handleExternalClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        const anchor = target.closest('a');
+        if (anchor && anchor.href && (anchor.href.startsWith('http') || anchor.href.startsWith('https'))) {
+          e.preventDefault();
+          // Use our IPC bridge
+          apiCall('open-external-url', { body: { url: anchor.href } });
+        }
+      };
+      document.addEventListener('click', handleExternalClick);
+      return () => document.removeEventListener('click', handleExternalClick);
+    }
+  }, []);
+
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'j') {
@@ -211,12 +228,6 @@ export default function App() {
     setRecentFolders(filtered);
     localStorage.setItem('sg_recent_folders', JSON.stringify(filtered));
   };
-
-  useEffect(() => {
-    if (terminalScrollRef.current) {
-      terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
-    }
-  }, [terminalOutput]);
 
   const executeTerminalCommand = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1116,17 +1127,14 @@ export default function App() {
         return;
       }
 
-      const res = await fetch('/api/workspace/open', {
+      const data = await apiCall('/api/workspace/open', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: { 
           folderPath: folderPath,
           type: isManualPath ? 'open' : workspaceData.type,
           url: workspaceData.url 
-        }),
+        },
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
       setActivePath(data.path);
       setProjectKey(prev => prev + 1);
       localStorage.setItem('sg_last_path', data.path);
@@ -1220,13 +1228,10 @@ Snippet:
 
   const handleUpdateSettings = async () => {
     try {
-      const res = await fetch('/api/settings', {
+      const data = await apiCall('/api/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: settings,
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
       toast.success('Settings updated');
       setIsSettingsOpen(false);
       fetchFiles(activePath); // Re-fetch from new location if needed, but works on abs paths now
@@ -1242,10 +1247,9 @@ Snippet:
       // Re-parse current editor content to ensure we have the latest blocks
       updateFormatting();
       const fountainContent = blocksToFountain(blocks);
-      await fetch(`/api/workspace/${encodePath(activePath)}/files/${activeFile}`, {
+      await apiCall(`/api/workspace/${encodePath(activePath)}/files/${activeFile}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: fountainContent }),
+        body: { content: fountainContent },
       });
       setHasUnsavedChanges(false);
       toast.success('Saved locally');
