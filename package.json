@@ -67,8 +67,7 @@
       "!node_modules"
     ],
     "win": {
-      "target": "portable",
-      "icon": "public/icon.ico"
+      "target": "portable"
     },
     "asar": true
   }
