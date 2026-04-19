@@ -67,7 +67,14 @@
       "!node_modules"
     ],
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "icon": "public/electron-icons/windows/icon.ico"
+    },
+    "mac": {
+      "icon": "public/electron-icons/macos/icon.icns"
+    },
+    "linux": {
+      "icon": "public/electron-icons/linux/icons"
     },
     "asar": true
   }
