@@ -211,11 +211,22 @@ export default function App() {
       document.addEventListener('click', handleExternalClick);
       
       // Listen for GitHub token from Main Process
-      const cleanupToken = (window as any).electronAPI?.onGitHubToken((token: string) => {
+      const cleanupToken = (window as any).electronAPI?.onGitHubToken(async (token: string) => {
         setGithubToken(token);
-        localStorage.setItem('sg_github_token', token);
         setIsGitHubConnected(true);
-        toast.success('GitHub account connected');
+        localStorage.setItem('sg_github_token', token);
+        
+        // Also persist to server settings
+        try {
+          await apiCall('/api/settings', {
+            method: 'POST',
+            body: { githubToken: token },
+          });
+          toast.success('GitHub account connected');
+        } catch (error) {
+          console.error('Failed to persist GitHub token to server');
+          toast.success('GitHub account connected (local session)');
+        }
       });
 
       return () => {
@@ -241,6 +252,12 @@ export default function App() {
     const lastPath = localStorage.getItem('sg_last_path');
     const recents = JSON.parse(localStorage.getItem('sg_recent_folders') || '[]');
     setRecentFolders(recents);
+
+    const savedToken = localStorage.getItem('sg_github_token');
+    if (savedToken) {
+      setGithubToken(savedToken);
+      setIsGitHubConnected(true);
+    }
 
     if (lastPath) {
       // Small timeout to allow basic init
@@ -826,6 +843,7 @@ export default function App() {
         const token = event.data.token;
         setGithubToken(token);
         setIsGitHubConnected(true);
+        localStorage.setItem('sg_github_token', token);
         
         // Persist token to server
         try {
@@ -862,6 +880,9 @@ export default function App() {
       if (data.githubToken) {
         setGithubToken(data.githubToken);
         setIsGitHubConnected(true);
+        if (!localStorage.getItem('sg_github_token')) {
+          localStorage.setItem('sg_github_token', data.githubToken);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch settings');
@@ -1598,6 +1619,7 @@ Snippet:
                           <Button variant="ghost" size="sm" className="h-7 text-xs text-gray-500" onClick={async () => {
                             setGithubToken('');
                             setIsGitHubConnected(false);
+                            localStorage.removeItem('sg_github_token');
                             try {
                               await apiCall('/api/settings', {
                                 method: 'POST',
