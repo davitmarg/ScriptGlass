@@ -2362,12 +2362,6 @@ Snippet:
           </div>
           
           <div className="flex items-center gap-5">
-            {isGitHubConnected && (
-              <div className="flex items-center gap-1.5 text-[#22c55e] font-semibold">
-                <CloudUpload className="w-3 h-3" />
-                <span>Synced to GitHub</span>
-              </div>
-            )}
             <span>UTF-8</span>
             <span>Fountain 1.1</span>
           </div>
