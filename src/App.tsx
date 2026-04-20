@@ -172,6 +172,7 @@ export default function App() {
     setIsBrowserOpen(false);
   };
   const [currentPage, setCurrentPage] = useState(1);
+  const [jumpPageInput, setJumpPageInput] = useState('1');
   const currentEditorFile = useRef<string | null>(null);
 
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
@@ -386,9 +387,9 @@ export default function App() {
 
       blocks.forEach((block, index) => {
         const text = block.content.trim();
-        if (!text) return;
-        
-        words += text.split(/\s+/).filter(Boolean).length;
+        if (text) {
+          words += text.split(/\s+/).filter(Boolean).length;
+        }
         
         let width = 6.0; // Default for Scene/Action
         if (block.type === 'character') width = 3.8;
@@ -476,8 +477,6 @@ export default function App() {
       const lineHeight = 1/6;
 
       blocks.forEach((block, index) => {
-        if (!block.content.trim()) return;
-
         let x = 1.5;
         let width = 6.0;
         let align = 'left';
@@ -1030,8 +1029,6 @@ export default function App() {
 
             for (let i = 0; i <= lineIndex; i++) {
               const block = blocks[i];
-              const bText = block.content.trim();
-              if (!bText && i < lineIndex) continue;
               
               let width = 6.0;
               if (block.type === 'character') width = 3.8;
@@ -1069,6 +1066,90 @@ export default function App() {
     document.addEventListener('selectionchange', updateActiveTypeFromSelection);
     return () => document.removeEventListener('selectionchange', updateActiveTypeFromSelection);
   }, [updateActiveTypeFromSelection]);
+
+  useEffect(() => {
+    setJumpPageInput(currentPage.toString());
+  }, [currentPage]);
+
+  const handleJumpToPage = useCallback(() => {
+    const pageNum = parseInt(jumpPageInput);
+    if (isNaN(pageNum) || pageNum < 1 || pageNum > pageCount) {
+      setJumpPageInput(currentPage.toString());
+      return;
+    }
+
+    let currentLines = 0;
+    let currentPages = 1;
+    const maxLinesPerPage = 54;
+    let targetBlockId = blocks[0]?.id;
+
+    try {
+      const doc = new jsPDF({ unit: 'in', format: 'letter' });
+      doc.setFont('courier', 'normal');
+      doc.setFontSize(12);
+
+      for (let i = 0; i < blocks.length; i++) {
+        if (currentPages === pageNum) {
+          targetBlockId = blocks[i].id;
+          break;
+        }
+
+        const block = blocks[i];
+        let width = 6.0;
+        if (block.type === 'character') width = 3.8;
+        else if (block.type === 'parenthetical') width = 2.0;
+        else if (block.type === 'dialogue') width = 3.5;
+        else if (block.type === 'transition') width = 2.0;
+        
+        const splitText = doc.splitTextToSize(block.content, width);
+        const blockLines = splitText.length;
+        
+        let spacing = 1;
+        if (i === 0) spacing = 0;
+        else if (block.type === 'dialogue' || block.type === 'parenthetical') spacing = 0;
+        else if (blocks[i-1].type === 'character' && (block.type === 'parenthetical' || block.type === 'dialogue')) spacing = 0;
+        else if (blocks[i-1].type === 'parenthetical' && block.type === 'dialogue') spacing = 0;
+        
+        if (currentLines + spacing + blockLines > maxLinesPerPage) {
+          currentPages++;
+          currentLines = blockLines;
+        } else {
+          currentLines += spacing + blockLines;
+        }
+      }
+    } catch (e) {}
+
+    if (targetBlockId) {
+      setActiveBlockId(targetBlockId);
+      setTimeout(() => {
+        const el = document.getElementById(targetBlockId);
+        const container = document.getElementById('editor-container');
+        if (el && container) {
+          // Calculate target scroll position manually to avoid shifting the entire app layout
+          const containerRect = container.getBoundingClientRect();
+          const elRect = el.getBoundingClientRect();
+          const relativeTop = elRect.top - containerRect.top + container.scrollTop;
+          
+          container.scrollTo({
+            top: relativeTop - 100, // Show with some top padding
+            behavior: 'auto'
+          });
+
+          el.focus({ preventScroll: true });
+          
+          // Set cursor at the end
+          const range = document.createRange();
+          const sel = window.getSelection();
+          if (sel) {
+            range.selectNodeContents(el);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+      }, 50);
+    }
+  }, [jumpPageInput, pageCount, currentPage, blocks]);
 
   const fetchFiles = async (absPath: string) => {
     try {
@@ -2096,14 +2177,24 @@ Snippet:
                             key={block.id}
                             onClick={() => {
                               const el = document.getElementById(block.id);
-                              if (el) {
-                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              const container = document.getElementById('editor-container');
+                              if (el && container) {
+                                // Calculate target scroll position manually to avoid shifting the entire app layout
+                                const containerRect = container.getBoundingClientRect();
+                                const elRect = el.getBoundingClientRect();
+                                const relativeTop = elRect.top - containerRect.top + container.scrollTop;
+                                
+                                container.scrollTo({
+                                  top: relativeTop - (container.clientHeight / 2) + (el.clientHeight / 2),
+                                  behavior: 'smooth'
+                                });
+                                
                                 // Add a temporary highlight effect
                                 el.style.backgroundColor = 'rgba(79, 70, 229, 0.1)';
                                 setTimeout(() => {
                                   el.style.backgroundColor = '';
                                 }, 2000);
-                                el.focus();
+                                el.focus({ preventScroll: true });
                               }
                               setActiveBlockId(block.id);
                             }}
@@ -2357,7 +2448,23 @@ Snippet:
                 )}
               </span>
             </div>
-            <span>Page {currentPage} of {pageCount}</span>
+            <div className="flex items-center gap-1.5 min-w-[120px]">
+              <span>Page</span>
+              <input
+                type="text"
+                value={jumpPageInput}
+                onChange={(e) => setJumpPageInput(e.target.value)}
+                onBlur={() => setJumpPageInput(currentPage.toString())}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleJumpToPage();
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                className="w-10 h-6 bg-transparent border-b border-indigo-900/10 hover:border-indigo-400 focus:border-indigo-500 text-center outline-none transition-all font-medium pt-0.5 text-indigo-900"
+              />
+              <span className="opacity-60">of {pageCount}</span>
+            </div>
             <span>{wordCount} words</span>
           </div>
           
