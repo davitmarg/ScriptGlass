@@ -243,9 +243,16 @@ export default function App() {
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'j') {
+      const isMod = e.ctrlKey || e.metaKey;
+
+      if (isMod && (e.key === 'j' || e.code === 'KeyJ')) {
         e.preventDefault();
         setIsTerminalOpen(prev => !prev);
+      }
+
+      if (isMod && (e.key === 'o' || e.code === 'KeyO')) {
+        e.preventDefault();
+        setIsWorkspacePickerOpen(true);
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
@@ -334,10 +341,10 @@ export default function App() {
         setTerminalHistoryIndex(-1);
         setTerminalInput('');
       }
-    } else if (e.ctrlKey && e.key === 'l') {
+    } else if (e.ctrlKey && (e.key === 'l' || e.code === 'KeyL')) {
       e.preventDefault();
       setTerminalOutput([]);
-    } else if (e.ctrlKey && e.key === 'c') {
+    } else if (e.ctrlKey && (e.key === 'c' || e.code === 'KeyC')) {
       e.preventDefault();
       setTerminalInput('');
     }
@@ -1628,9 +1635,100 @@ Snippet:
           </div>
         </div>
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden relative">
+          {/* Terminal Pane (Left Overlay) */}
+          <AnimatePresence>
+            {isTerminalOpen && (
+              <motion.div
+                initial={{ width: 0, opacity: 0, x: -20 }}
+                animate={{ width: 500, opacity: 1, x: 0 }}
+                exit={{ width: 0, opacity: 0, x: -20 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                className="absolute left-[112px] top-1/2 -translate-y-1/2 z-50 glass-panel border rounded-[2.5rem] overflow-hidden flex flex-col shadow-2xl h-[calc(100%-8rem)]"
+              >
+                <div className="flex items-center justify-between px-6 py-1.5 border-b border-indigo-200/10 dark:border-border/50 bg-indigo-50/20 dark:bg-muted/30 backdrop-blur-md">
+                  <div className="flex items-center gap-3 text-[10px] text-indigo-600/60 dark:text-muted-foreground/50 uppercase tracking-[1px] font-bold">
+                    <span className="text-indigo-600 dark:text-foreground/40">Terminal</span>
+                    <span className="opacity-30">|</span>
+                    <span className="normal-case opacity-60 font-mono text-[9px] truncate max-w-[200px]">{activePath || 'no-workspace'}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      className="p-1.5 hover:bg-destructive/10 rounded-lg text-muted-foreground/40 hover:text-destructive transition-colors group"
+                      onClick={() => {
+                        setTerminalOutput([]);
+                      }}
+                      title="Clear Terminal"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                    </button>
+                    <button 
+                      className="p-1.5 hover:bg-indigo-500/10 rounded-lg text-muted-foreground/40 hover:text-foreground transition-colors" 
+                      onClick={() => setIsTerminalOpen(false)}
+                      title="Minimize"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 flex flex-col overflow-hidden bg-white/95 dark:bg-indigo-950/20 backdrop-blur-md">
+                  <div 
+                    ref={terminalScrollRef}
+                    className="flex-1 overflow-y-auto p-6 font-mono text-[11px] selection:bg-indigo-100 dark:selection:bg-primary/30 scrollbar-hide text-indigo-900/70 dark:text-foreground/70"
+                    onClick={() => {
+                      const input = document.getElementById('terminal-input');
+                      if (input) input.focus();
+                    }}
+                  >
+                    {terminalOutput.map((line, i) => (
+                      <div key={i} className={`whitespace-pre-wrap mb-0.5 ${
+                        line.type === 'command' ? 'text-indigo-950 dark:text-foreground font-bold' :
+                        line.type === 'stderr' ? 'text-amber-600' :
+                        line.type === 'error' ? 'text-red-600' : 'text-indigo-900/60 dark:text-foreground/70'
+                      }`}>
+                        {line.type === 'command' && (
+                          <span className="text-indigo-600 dark:text-indigo-400 mr-2 font-bold">
+                            <span className="opacity-40">[{getShortPath(activePath)}]</span>
+                            <span className="ml-1">$</span>
+                          </span>
+                        )}
+                        {line.content}
+                      </div>
+                    ))}
+                    
+                    <form 
+                      onSubmit={executeTerminalCommand}
+                      className="mt-1 flex items-center gap-0"
+                    >
+                      <span className="text-indigo-600 dark:text-indigo-400 shrink-0 font-bold mr-2 whitespace-nowrap">
+                        <span className="opacity-40 font-mono tracking-tighter">[{getShortPath(activePath || 'sg')}]</span>
+                        <span className="ml-1 font-black shadow-sm">$</span>
+                      </span>
+                      <input
+                        id="terminal-input"
+                        value={terminalInput}
+                        onChange={(e) => setTerminalInput(e.target.value)}
+                        onKeyDown={handleTerminalKeyDown}
+                        placeholder=""
+                        autoComplete="off"
+                        spellCheck="false"
+                        className="flex-1 bg-transparent border-none outline-none text-indigo-950 dark:text-foreground font-mono caret-indigo-600 dark:caret-primary focus:ring-0"
+                        autoFocus
+                      />
+                    </form>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Sidebar */}
-          <aside className="w-12 glass-panel border-r flex flex-col items-center py-5 gap-6 shrink-0">
+          <motion.aside 
+            whileHover={{ scale: 1.02 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+            className="absolute left-6 top-1/2 -translate-y-1/2 w-14 glass-panel border rounded-[2rem] flex flex-col items-center py-5 gap-6 shrink-0 h-[calc(100%-8rem)] shadow-lg hover:shadow-xl transition-shadow z-50"
+          >
             <Tooltip>
               <TooltipTrigger 
                 className={`transition-colors ${isSidebarOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/50'}`}
@@ -1638,6 +1736,9 @@ Snippet:
                   if (!activePath) {
                     toast.error('Open a folder first');
                     return;
+                  }
+                  if (!isSidebarOpen) {
+                    setIsTerminalOpen(false);
                   }
                   setIsSidebarOpen(!isSidebarOpen);
                 }}
@@ -1671,7 +1772,12 @@ Snippet:
               <Tooltip>
                 <TooltipTrigger 
                   className={`transition-colors ${isTerminalOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/60'}`}
-                  onClick={() => setIsTerminalOpen(!isTerminalOpen)}
+                  onClick={() => {
+                    if (!isTerminalOpen) {
+                      setIsSidebarOpen(false);
+                    }
+                    setIsTerminalOpen(!isTerminalOpen);
+                  }}
                 >
                   <TerminalIcon className="w-5 h-5" />
                 </TooltipTrigger>
@@ -1787,16 +1893,18 @@ Snippet:
                 </DialogContent>
               </Dialog>
             </div>
-          </aside>
+          </motion.aside>
 
           {/* File List (Conditional) */}
           <AnimatePresence>
             {isSidebarOpen && activePath && (
               <motion.div
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 240, opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
-                className="glass-panel border-r overflow-hidden flex flex-col shrink-0"
+                initial={{ width: 0, opacity: 0, x: -20 }}
+                animate={{ width: 260, opacity: 1, x: 0 }}
+                exit={{ width: 0, opacity: 0, x: -20 }}
+                whileHover={{ scale: 1.01 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                className="absolute left-[108px] top-1/2 -translate-y-1/2 z-40 glass-panel border rounded-[2rem] overflow-hidden flex flex-col shrink-0 h-[calc(100%-8rem)] shadow-xl hover:shadow-2xl transition-shadow"
               >
                 <div className="flex-1 flex flex-col min-h-0">
                   <div className="p-4 flex items-center justify-between text-[11px] font-bold text-muted-foreground/40 uppercase tracking-widest border-b border-border/50">
@@ -1875,7 +1983,7 @@ Snippet:
           {/* Editor Canvas */}
           <main 
             id="editor-container"
-            className="flex-1 flex justify-center overflow-y-auto p-10 bg-transparent scrollbar-hide cursor-text"
+            className="w-full h-full overflow-y-auto py-[15vh] px-10 bg-transparent scrollbar-hide cursor-text"
             onClick={(e) => {
               if (e.target === e.currentTarget && editorRef.current) {
                 const lastLine = editorRef.current.lastElementChild as HTMLElement;
@@ -1896,7 +2004,7 @@ Snippet:
             <motion.div 
               key={`${activePath}-${projectKey}`}
               style={{ scale: zoom, transformOrigin: 'top center' }}
-              className="w-full max-w-[700px] h-fit min-h-full glass-panel script-paper rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-0 relative mb-10 cursor-text flex flex-col overflow-hidden"
+              className="w-full max-w-[700px] mx-auto h-fit min-h-[500px] glass-panel script-paper rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-0 relative mb-[15vh] cursor-text flex flex-col overflow-hidden"
               onClick={(e) => {
                 if (e.target === e.currentTarget && editorRef.current) {
                   const lastLine = editorRef.current.lastElementChild as HTMLElement;
@@ -1951,17 +2059,18 @@ Snippet:
                   onKeyDown={(e) => {
                     const isMac = navigator.platform.includes('Mac');
                     const cmdOrAlt = isMac ? e.metaKey : e.altKey;
+                    const isMod = e.metaKey || e.ctrlKey;
 
-                    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                    if (isMod && (e.key === 's' || e.code === 'KeyS')) {
                       e.preventDefault();
                       handleSave();
                     }
-                    if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+                    if (isMod && (e.key === 'z' || e.code === 'KeyZ')) {
                       e.preventDefault();
                       if (e.shiftKey) redo();
                       else undo();
                     }
-                    if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
+                    if (isMod && (e.key === 'y' || e.code === 'KeyY')) {
                       e.preventDefault();
                       redo();
                     }
@@ -2109,10 +2218,12 @@ Snippet:
           <AnimatePresence>
             {isRightSidebarOpen && (
               <motion.aside
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 256, opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
-                className="glass-panel border-l flex flex-col shrink-0 overflow-hidden h-full"
+                initial={{ width: 0, opacity: 0, x: 20 }}
+                animate={{ width: 280, opacity: 1, x: 0 }}
+                exit={{ width: 0, opacity: 0, x: 20 }}
+                whileHover={{ scale: 1.01 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                className="absolute right-[108px] top-1/2 -translate-y-1/2 z-40 glass-panel border rounded-[2rem] flex flex-col shrink-0 overflow-hidden h-[calc(100%-8rem)] shadow-xl hover:shadow-2xl transition-shadow"
               >
                 <div className="p-4 border-b border-border/50 flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">
@@ -2304,7 +2415,11 @@ Snippet:
           </AnimatePresence>
 
           {/* Right Icons Bar */}
-          <aside className="w-12 glass-panel border-l flex flex-col items-center py-5 gap-6 shrink-0">
+          <motion.aside 
+            whileHover={{ scale: 1.02 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+            className="absolute right-6 top-1/2 -translate-y-1/2 w-14 glass-panel border rounded-[2rem] flex flex-col items-center py-5 gap-6 shrink-0 h-[calc(100%-8rem)] shadow-lg hover:shadow-xl transition-shadow z-50"
+          >
             <Tooltip>
               <TooltipTrigger 
                 className={`transition-colors hover:text-indigo-600 ${isRightSidebarOpen && activeRightTab === 'formatting' ? 'text-indigo-600' : 'text-indigo-400/50'}`}
@@ -2372,99 +2487,8 @@ Snippet:
               </TooltipTrigger>
               <TooltipContent side="left">AI Enhance</TooltipContent>
             </Tooltip>
-          </aside>
+          </motion.aside>
         </div>
-
-        {/* Terminal Pane */}
-        <AnimatePresence>
-          {isTerminalOpen && (
-            <motion.div
-              initial={{ height: 0 }}
-              animate={{ height: 240 }}
-              exit={{ height: 0 }}
-              className="glass-panel border-t overflow-hidden flex flex-col shrink-0"
-            >
-              <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-muted/30 backdrop-blur-sm">
-                <div className="flex items-center gap-3 text-[10px] text-muted-foreground/50 uppercase tracking-[1px] font-bold">
-                  <div className="flex gap-1.5 mr-1">
-                    <div className="w-2 h-2 rounded-full bg-red-400/30" />
-                    <div className="w-2 h-2 rounded-full bg-amber-400/30" />
-                    <div className="w-2 h-2 rounded-full bg-emerald-400/30" />
-                  </div>
-                  <span className="text-foreground/40">Terminal</span>
-                  <span className="opacity-30">|</span>
-                  <span className="normal-case opacity-60 font-mono text-[9px] truncate max-w-[300px]">{activePath || 'no-workspace'}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button 
-                    className="p-1.5 hover:bg-destructive/10 rounded-md text-muted-foreground/40 hover:text-destructive transition-colors group"
-                    onClick={() => {
-                      setTerminalOutput([]);
-                      setIsTerminalOpen(false);
-                    }}
-                    title="Clear Terminal"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-                  </button>
-                  <button 
-                    className="p-1.5 hover:bg-secondary rounded-md text-muted-foreground/40 hover:text-foreground transition-colors" 
-                    onClick={() => setIsTerminalOpen(false)}
-                  >
-                    <ChevronLeft className="w-4 h-4 rotate-[-90deg]" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex-1 flex flex-col overflow-hidden bg-black/5 dark:bg-black/20">
-                <div 
-                  ref={terminalScrollRef}
-                  className="flex-1 overflow-y-auto p-4 font-mono text-[11px] selection:bg-primary/30 scrollbar-hide"
-                  onClick={() => {
-                    const input = document.getElementById('terminal-input');
-                    if (input) input.focus();
-                  }}
-                >
-                  {terminalOutput.map((line, i) => (
-                    <div key={i} className={`whitespace-pre-wrap mb-0.5 ${
-                      line.type === 'command' ? 'text-foreground font-bold' :
-                      line.type === 'stderr' ? 'text-amber-600' :
-                      line.type === 'error' ? 'text-red-500' : 'text-foreground/70'
-                    }`}>
-                      {line.type === 'command' && (
-                        <span className="text-indigo-600 dark:text-indigo-400 mr-2 font-bold">
-                          <span className="opacity-40">[{getShortPath(activePath)}]</span>
-                          <span className="ml-1">$</span>
-                        </span>
-                      )}
-                      {line.content}
-                    </div>
-                  ))}
-                  
-                  <form 
-                    onSubmit={executeTerminalCommand}
-                    className="mt-1 flex items-center gap-0"
-                  >
-                    <span className="text-primary dark:text-indigo-400 shrink-0 font-bold mr-2 whitespace-nowrap">
-                      <span className="opacity-40 font-mono tracking-tighter">[{getShortPath(activePath || 'sg')}]</span>
-                      <span className="ml-1 font-black shadow-sm">$</span>
-                    </span>
-                    <input
-                      id="terminal-input"
-                      value={terminalInput}
-                      onChange={(e) => setTerminalInput(e.target.value)}
-                      onKeyDown={handleTerminalKeyDown}
-                      placeholder=""
-                      autoComplete="off"
-                      spellCheck="false"
-                      className="flex-1 bg-transparent border-none outline-none text-foreground font-mono caret-primary focus:ring-0"
-                      autoFocus
-                    />
-                  </form>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Status Bar */}
         <footer className="h-[28px] glass-panel border-t flex items-center justify-between px-4 text-[11px] text-foreground/60 shrink-0">
