@@ -262,7 +262,14 @@ export default function App() {
   // Load last session and recent history
   useEffect(() => {
     const lastPath = localStorage.getItem('sg_last_path');
-    const recents = JSON.parse(localStorage.getItem('sg_recent_folders') || '[]');
+    const recentsRaw = localStorage.getItem('sg_recent_folders');
+    let recents = [];
+    try {
+      recents = JSON.parse(recentsRaw || '[]');
+      if (!Array.isArray(recents)) recents = [];
+    } catch {
+      recents = [];
+    }
     setRecentFolders(recents);
 
     const savedToken = localStorage.getItem('sg_github_token');
@@ -990,36 +997,9 @@ export default function App() {
     }
   };
 
-  const saveLastPosition = useCallback(() => {
-    if (!activePath || !activeFile) return;
-    
-    const sel = window.getSelection();
-    let blockId = null;
-    let offset = 0;
-    
-    if (sel && sel.rangeCount > 0) {
-      let node = sel.anchorNode;
-      while (node && (node.nodeType !== 1 || !(node as HTMLElement).classList.contains('script-line'))) {
-        node = node.parentElement;
-        if (node === editorRef.current || !node) break;
-      }
-      if (node && (node as HTMLElement).classList.contains('script-line')) {
-        blockId = (node as HTMLElement).id;
-        offset = sel.anchorOffset;
-      }
-    }
-    
-    const container = document.getElementById('editor-container');
-    const scrollTop = container ? container.scrollTop : 0;
-    
-    const state = { blockId, offset, scrollTop };
-    localStorage.setItem(`sg_pos_${activePath}_${activeFile}`, JSON.stringify(state));
-  }, [activePath, activeFile]);
-
   const updateActiveTypeFromSelection = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return;
-    saveLastPosition();
     let node = sel.anchorNode;
     if (!node) return;
     
@@ -1223,17 +1203,18 @@ export default function App() {
   const fetchFiles = async (absPath: string) => {
     try {
       const data = await apiCall(`/api/workspace/${encodePath(absPath)}/files`);
-      setFiles(data);
-      if (data.length > 0) {
+      const filesList = Array.isArray(data) ? data : [];
+      setFiles(filesList);
+      if (filesList.length > 0) {
         const lastFileKey = `sg_last_file_${absPath}`;
         const savedLastFile = localStorage.getItem(lastFileKey);
         
         // If we have a saved file and it's still in the list, use it.
         // Otherwise, if we don't have an active file or it's gone, default to the first one.
-        if (savedLastFile && data.includes(savedLastFile)) {
+        if (savedLastFile && filesList.includes(savedLastFile)) {
           setActiveFile(savedLastFile);
-        } else if (!activeFile || !data.includes(activeFile)) {
-          setActiveFile(data[0]);
+        } else if (!activeFile || !filesList.includes(activeFile)) {
+          setActiveFile(filesList[0]);
         }
       } else {
         setActiveFile(null);
@@ -1263,62 +1244,23 @@ export default function App() {
         syncEditorFromBlocks(loadedBlocks);
         currentEditorFile.current = filename;
         
-        // Restore last session position or go to top/bottom default
+        // Auto-focus last line and scroll to bottom
         setTimeout(() => {
-          const savedState = localStorage.getItem(`sg_pos_${absPath}_${filename}`);
-          let el: HTMLElement | null = null;
-          let targetOffset = 0;
-          let targetScroll = 0;
-
-          if (savedState) {
-            try {
-              const { blockId, offset, scrollTop } = JSON.parse(savedState);
-              el = blockId ? document.getElementById(blockId) : null;
-              targetOffset = offset || 0;
-              targetScroll = scrollTop || 0;
-            } catch (e) {
-              console.error('Failed to parse saved state');
-            }
-          }
-
-          // Fallback to start if no saved state or element missing
-          if (!el) {
-            el = editorRef.current?.firstElementChild as HTMLElement;
-          }
-
+          const el = editorRef.current?.lastElementChild as HTMLElement;
           if (el) {
             el.focus();
             const range = document.createRange();
             const sel = window.getSelection();
             if (sel) {
-              const textNode = el.firstChild || el;
-              const finalOffset = Math.min(targetOffset, textNode.textContent?.length || 0);
-              try {
-                if (textNode.nodeType === 3) {
-                  range.setStart(textNode, finalOffset);
-                } else {
-                  range.selectNodeContents(el);
-                }
-                range.collapse(true);
-                sel.removeAllRanges();
-                sel.addRange(range);
-              } catch (e) {
-                range.selectNodeContents(el);
-                range.collapse(false);
-                sel.removeAllRanges();
-                sel.addRange(range);
-              }
+              range.selectNodeContents(el);
+              range.collapse(false);
+              sel.removeAllRanges();
+              sel.addRange(range);
             }
-
-            if (savedState && targetScroll > 0) {
-              const container = document.getElementById('editor-container');
-              if (container) container.scrollTop = targetScroll;
-            } else {
-              // Smooth reveal if it's naturally opening
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
+            // Ensure smooth scroll to the newly focused last line
+            el.scrollIntoView({ behavior: 'smooth', block: 'end' });
           }
-        }, 150);
+        }, 100);
       }
 
       setIsInitialLoading(false);
@@ -2066,12 +2008,7 @@ Snippet:
           <main 
             id="editor-container"
             className="w-full h-full overflow-y-auto py-[15vh] px-10 bg-transparent scrollbar-hide cursor-text"
-            onScroll={() => saveLastPosition()}
             onClick={(e) => {
-              // Close left panels when clicking container or paper background
-              setIsSidebarOpen(false);
-              setIsTerminalOpen(false);
-              
               if (e.target === e.currentTarget && editorRef.current) {
                 const lastLine = editorRef.current.lastElementChild as HTMLElement;
                 if (lastLine) {
@@ -2093,10 +2030,6 @@ Snippet:
               style={{ scale: zoom, transformOrigin: 'top center' }}
               className="w-full max-w-[700px] mx-auto h-fit min-h-[500px] glass-panel script-paper rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-0 relative mb-[15vh] cursor-text flex flex-col overflow-hidden"
               onClick={(e) => {
-                // Close left panels when clicking the paper background (margins)
-                setIsSidebarOpen(false);
-                setIsTerminalOpen(false);
-
                 if (e.target === e.currentTarget && editorRef.current) {
                   const lastLine = editorRef.current.lastElementChild as HTMLElement;
                   if (lastLine) {
@@ -2146,8 +2079,6 @@ Snippet:
                     setHasUnsavedChanges(true);
                     updateActiveTypeFromSelection();
                   }}
-                  onMouseUp={updateActiveTypeFromSelection}
-                  onKeyUp={updateActiveTypeFromSelection}
                   onPaste={handlePaste}
                   onKeyDown={(e) => {
                     const isMac = navigator.platform.includes('Mac');
@@ -2234,12 +2165,12 @@ Snippet:
                     if (showAutocomplete) {
                       if (e.key === 'ArrowDown') {
                         e.preventDefault();
-                        setAutocompleteIndex(prev => (prev + 1) % autocompleteList.length);
+                        setAutocompleteIndex(prev => (prev + 1) % (autocompleteList?.length || 1));
                         return;
                       }
                       if (e.key === 'ArrowUp') {
                         e.preventDefault();
-                        setAutocompleteIndex(prev => (prev - 1 + autocompleteList.length) % autocompleteList.length);
+                        setAutocompleteIndex(prev => (prev - 1 + (autocompleteList?.length || 1)) % (autocompleteList?.length || 1));
                         return;
                       }
                       if (e.key === 'Enter' || e.key === 'Tab') {
@@ -2856,12 +2787,12 @@ Snippet:
                   </Button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-1 custom-scrollbar">
-                  {browserData.directories.length === 0 ? (
+                  {(browserData.directories || []).length === 0 ? (
                     <div className="p-8 text-center text-xs text-muted-foreground italic">
                       No subdirectories found
                     </div>
                   ) : (
-                    browserData.directories.map((dir) => (
+                    (browserData.directories || []).map((dir) => (
                       <button
                         key={dir}
                         onClick={() => handleBrowseNavigate(dir)}
