@@ -961,6 +961,7 @@ export default function App() {
 
   useEffect(() => {
     if (activePath && activeFile) {
+      localStorage.setItem(`sg_last_file_${activePath}`, activeFile);
       fetchFileContent(activePath, activeFile);
       setIsEditorReady(false);
     }
@@ -989,9 +990,36 @@ export default function App() {
     }
   };
 
+  const saveLastPosition = useCallback(() => {
+    if (!activePath || !activeFile) return;
+    
+    const sel = window.getSelection();
+    let blockId = null;
+    let offset = 0;
+    
+    if (sel && sel.rangeCount > 0) {
+      let node = sel.anchorNode;
+      while (node && (node.nodeType !== 1 || !(node as HTMLElement).classList.contains('script-line'))) {
+        node = node.parentElement;
+        if (node === editorRef.current || !node) break;
+      }
+      if (node && (node as HTMLElement).classList.contains('script-line')) {
+        blockId = (node as HTMLElement).id;
+        offset = sel.anchorOffset;
+      }
+    }
+    
+    const container = document.getElementById('editor-container');
+    const scrollTop = container ? container.scrollTop : 0;
+    
+    const state = { blockId, offset, scrollTop };
+    localStorage.setItem(`sg_pos_${activePath}_${activeFile}`, JSON.stringify(state));
+  }, [activePath, activeFile]);
+
   const updateActiveTypeFromSelection = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return;
+    saveLastPosition();
     let node = sel.anchorNode;
     if (!node) return;
     
@@ -1197,8 +1225,14 @@ export default function App() {
       const data = await apiCall(`/api/workspace/${encodePath(absPath)}/files`);
       setFiles(data);
       if (data.length > 0) {
-        // If current active file is not in the new list, or no active file, open the first one
-        if (!activeFile || !data.includes(activeFile)) {
+        const lastFileKey = `sg_last_file_${absPath}`;
+        const savedLastFile = localStorage.getItem(lastFileKey);
+        
+        // If we have a saved file and it's still in the list, use it.
+        // Otherwise, if we don't have an active file or it's gone, default to the first one.
+        if (savedLastFile && data.includes(savedLastFile)) {
+          setActiveFile(savedLastFile);
+        } else if (!activeFile || !data.includes(activeFile)) {
           setActiveFile(data[0]);
         }
       } else {
@@ -1229,21 +1263,62 @@ export default function App() {
         syncEditorFromBlocks(loadedBlocks);
         currentEditorFile.current = filename;
         
-        // Auto-focus first line
+        // Restore last session position or go to top/bottom default
         setTimeout(() => {
-          const el = editorRef.current?.firstChild as HTMLElement;
+          const savedState = localStorage.getItem(`sg_pos_${absPath}_${filename}`);
+          let el: HTMLElement | null = null;
+          let targetOffset = 0;
+          let targetScroll = 0;
+
+          if (savedState) {
+            try {
+              const { blockId, offset, scrollTop } = JSON.parse(savedState);
+              el = blockId ? document.getElementById(blockId) : null;
+              targetOffset = offset || 0;
+              targetScroll = scrollTop || 0;
+            } catch (e) {
+              console.error('Failed to parse saved state');
+            }
+          }
+
+          // Fallback to start if no saved state or element missing
+          if (!el) {
+            el = editorRef.current?.firstElementChild as HTMLElement;
+          }
+
           if (el) {
             el.focus();
             const range = document.createRange();
             const sel = window.getSelection();
             if (sel) {
-              range.selectNodeContents(el);
-              range.collapse(false);
-              sel.removeAllRanges();
-              sel.addRange(range);
+              const textNode = el.firstChild || el;
+              const finalOffset = Math.min(targetOffset, textNode.textContent?.length || 0);
+              try {
+                if (textNode.nodeType === 3) {
+                  range.setStart(textNode, finalOffset);
+                } else {
+                  range.selectNodeContents(el);
+                }
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+              } catch (e) {
+                range.selectNodeContents(el);
+                range.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }
+            }
+
+            if (savedState && targetScroll > 0) {
+              const container = document.getElementById('editor-container');
+              if (container) container.scrollTop = targetScroll;
+            } else {
+              // Smooth reveal if it's naturally opening
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
           }
-        }, 50);
+        }, 150);
       }
 
       setIsInitialLoading(false);
@@ -1933,48 +2008,55 @@ Snippet:
                         </TooltipTrigger>
                         <TooltipContent>New Script</TooltipContent>
                       </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger 
+                          onClick={() => setIsSidebarOpen(false)} 
+                          className="hover:text-destructive p-1"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </TooltipTrigger>
+                        <TooltipContent>Minimize</TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                   
-                  <ScrollArea className="flex-1">
-                    <div className="p-2 space-y-1">
-                      {files.length > 0 ? files.map((file) => (
-                        <div
-                          key={file}
-                          className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all text-sm ${
-                            activeFile === file 
-                              ? 'glass-card text-foreground font-medium shadow-sm' 
-                              : 'hover:bg-indigo-500/10 text-foreground/60'
-                          }`}
-                          onClick={() => setActiveFile(file)}
+                  <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1 custom-scrollbar">
+                    {files.length > 0 ? files.map((file) => (
+                      <div
+                        key={file}
+                        className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all text-sm ${
+                          activeFile === file 
+                            ? 'glass-card text-foreground font-medium shadow-sm' 
+                            : 'hover:bg-indigo-500/10 text-foreground/60'
+                        }`}
+                        onClick={() => setActiveFile(file)}
+                      >
+                        <div className="flex items-center gap-2 overflow-hidden px-1">
+                          <FileText className="w-4 h-4 flex-shrink-0" />
+                          <span className="truncate">{file}</span>
+                        </div>
+                        <button
+                          className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center text-muted-foreground/60 hover:text-destructive rounded-md hover:bg-destructive/10"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            confirmDeleteFile(file);
+                          }}
                         >
-                          <div className="flex items-center gap-2 overflow-hidden px-1">
-                            <FileText className="w-4 h-4 flex-shrink-0" />
-                            <span className="truncate">{file}</span>
-                          </div>
-                          <button
-                            className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center text-muted-foreground/60 hover:text-destructive rounded-md hover:bg-destructive/10"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              confirmDeleteFile(file);
-                            }}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )) : (
+                      <div className="p-8 flex flex-col items-center justify-center text-center space-y-3">
+                        <FileText className="w-8 h-8 text-indigo-200/50" />
+                        <div className="text-xs text-muted-foreground/40 italic">
+                          No scripts in this folder.
                         </div>
-                      )) : (
-                        <div className="p-8 flex flex-col items-center justify-center text-center space-y-3">
-                  <FileText className="w-8 h-8 text-indigo-200/50" />
-                          <div className="text-xs text-muted-foreground/40 italic">
-                            No scripts in this folder.
-                          </div>
-                          <Button variant="outline" size="sm" className="text-[10px]" onClick={() => setIsNewScriptOpen(true)}>
-                            Create First Script
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
+                        <Button variant="outline" size="sm" className="text-[10px]" onClick={() => setIsNewScriptOpen(true)}>
+                          Create First Script
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -1984,7 +2066,12 @@ Snippet:
           <main 
             id="editor-container"
             className="w-full h-full overflow-y-auto py-[15vh] px-10 bg-transparent scrollbar-hide cursor-text"
+            onScroll={() => saveLastPosition()}
             onClick={(e) => {
+              // Close left panels when clicking container or paper background
+              setIsSidebarOpen(false);
+              setIsTerminalOpen(false);
+              
               if (e.target === e.currentTarget && editorRef.current) {
                 const lastLine = editorRef.current.lastElementChild as HTMLElement;
                 if (lastLine) {
@@ -2006,6 +2093,10 @@ Snippet:
               style={{ scale: zoom, transformOrigin: 'top center' }}
               className="w-full max-w-[700px] mx-auto h-fit min-h-[500px] glass-panel script-paper rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-0 relative mb-[15vh] cursor-text flex flex-col overflow-hidden"
               onClick={(e) => {
+                // Close left panels when clicking the paper background (margins)
+                setIsSidebarOpen(false);
+                setIsTerminalOpen(false);
+
                 if (e.target === e.currentTarget && editorRef.current) {
                   const lastLine = editorRef.current.lastElementChild as HTMLElement;
                   if (lastLine) {
@@ -2055,6 +2146,8 @@ Snippet:
                     setHasUnsavedChanges(true);
                     updateActiveTypeFromSelection();
                   }}
+                  onMouseUp={updateActiveTypeFromSelection}
+                  onKeyUp={updateActiveTypeFromSelection}
                   onPaste={handlePaste}
                   onKeyDown={(e) => {
                     const isMac = navigator.platform.includes('Mac');
