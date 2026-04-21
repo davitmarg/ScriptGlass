@@ -30,10 +30,11 @@ async function startServer() {
 
   app.post("/api/settings", async (req, res) => {
     try {
-      const { baseProjectsDir, githubToken, geminiKey } = req.body;
+      const { baseProjectsDir, githubToken, geminiKey, theme } = req.body;
       if (baseProjectsDir) settings.baseDir = baseProjectsDir;
       if (githubToken !== undefined) settings.githubToken = githubToken;
       if (geminiKey !== undefined) settings.geminiKey = geminiKey;
+      if (theme !== undefined) settings.theme = theme;
       
       await settings.save();
       res.json({ success: true });

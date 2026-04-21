@@ -95,7 +95,11 @@ export default function App() {
 
   const [isGitHubConnected, setIsGitHubConnected] = useState(false);
   const [syncCommitMessage, setSyncCommitMessage] = useState('');
-  const [settings, setSettings] = useState({ baseProjectsDir: '', geminiKey: '' });
+  const [settings, setSettings] = useState({ 
+    baseProjectsDir: '', 
+    geminiKey: '',
+    theme: (localStorage.getItem('sg_theme') || 'system') as 'light' | 'dark' | 'system'
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isWorkspacePickerOpen, setIsWorkspacePickerOpen] = useState(false);
   const [workspaceData, setWorkspaceData] = useState({ path: '', type: 'open' as 'open' | 'clone' | 'create', url: '', name: '' });
@@ -872,10 +876,12 @@ export default function App() {
   const fetchSettings = async () => {
     try {
       const data = await apiCall('/api/settings');
-      setSettings({ 
+      setSettings(prev => ({ 
+        ...prev,
         baseProjectsDir: data.baseProjectsDir || '', 
-        geminiKey: data.geminiKey || '' 
-      });
+        geminiKey: data.geminiKey || '' ,
+        theme: (data.theme || prev.theme) as 'light' | 'dark' | 'system'
+      }));
       if (data.githubToken) {
         setGithubToken(data.githubToken);
         setIsGitHubConnected(true);
@@ -887,6 +893,34 @@ export default function App() {
       console.error('Failed to fetch settings');
     }
   };
+
+  useEffect(() => {
+    const applyTheme = () => {
+      const root = window.document.documentElement;
+      let effectiveTheme = settings.theme;
+      
+      if (settings.theme === 'system') {
+        effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      
+      if (effectiveTheme === 'dark') {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+      localStorage.setItem('sg_theme', settings.theme);
+    };
+
+    applyTheme();
+    
+    // Listen for system theme changes if in system mode
+    if (settings.theme === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = () => applyTheme();
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
+  }, [settings.theme]);
 
   useEffect(() => {
     fetchSettings();
@@ -1511,7 +1545,7 @@ Snippet:
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen w-full bg-transparent text-indigo-950 font-sans selection:bg-yellow-200/60 overflow-hidden">
+      <div className="flex flex-col h-screen w-full bg-transparent text-foreground font-sans selection:bg-yellow-200/60 overflow-hidden">
         <Toaster position="top-center" />
         
         {/* Title Bar */}
@@ -1537,20 +1571,20 @@ Snippet:
             </div>
           )}
 
-          <div className="text-[12px] font-semibold text-indigo-900/60 flex-1 flex items-center gap-2 overflow-hidden tracking-wider">
+          <div className="text-[12px] font-semibold text-foreground/60 flex-1 flex items-center gap-2 overflow-hidden tracking-wider">
             <span className="shrink-0 uppercase">ScriptGlass</span>
             {activePath && (
               <>
                 <span className="opacity-40 shrink-0">/</span>
-                <span className="text-indigo-950/80 truncate max-w-[200px]">{getBasename(activePath)}</span>
+                <span className="text-foreground/80 truncate max-w-[200px]">{getBasename(activePath)}</span>
               </>
             )}
             {activeFile && (
               <>
                 <span className="opacity-40 shrink-0">/</span>
-                <span className="text-indigo-950 font-bold flex items-center gap-1 truncate font-mono">
+                <span className="text-foreground font-bold flex items-center gap-1 truncate font-mono">
                   {activeFile}
-                  {hasUnsavedChanges && <span className="text-indigo-600 drop-shadow-sm shrink-0">*</span>}
+                  {hasUnsavedChanges && <span className="text-indigo-600 dark:text-indigo-400 drop-shadow-sm shrink-0">*</span>}
                 </span>
               </>
             )}
@@ -1560,7 +1594,7 @@ Snippet:
             <Button 
               variant="ghost" 
               size="sm" 
-              className="h-7 text-[10px] uppercase tracking-widest font-bold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50/50 gap-2 mr-2"
+              className="h-7 text-[10px] uppercase tracking-widest font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 gap-2 mr-2"
               onClick={exportToPDF}
               disabled={!activeFile || blocks.length === 0}
             >
@@ -1570,22 +1604,22 @@ Snippet:
 
             {/* Windows-style Window Controls (Right) */}
             {navigator.platform.includes('Win') && isDesktop() && (
-              <div className="flex h-full border-l border-indigo-100/50">
+              <div className="flex h-full border-l border-border/50">
                 <button 
                   onClick={() => (window as any).electronAPI.minimize()} 
-                  className="px-4 h-[38px] flex items-center justify-center hover:bg-indigo-50 text-indigo-900/40 hover:text-indigo-900 transition-colors"
+                  className="px-4 h-[38px] flex items-center justify-center hover:bg-secondary text-muted-foreground/50 hover:text-foreground transition-colors"
                 >
                   <Minus className="w-4 h-4" />
                 </button>
                 <button 
                   onClick={() => (window as any).electronAPI.maximize()} 
-                  className="px-4 h-[38px] flex items-center justify-center hover:bg-indigo-100 text-indigo-900/40 hover:text-indigo-900 transition-colors"
+                  className="px-4 h-[38px] flex items-center justify-center hover:bg-secondary/80 text-muted-foreground/50 hover:text-foreground transition-colors"
                 >
                   <Square className="w-3 h-3" />
                 </button>
                 <button 
                   onClick={() => (window as any).electronAPI.close()} 
-                  className="px-4 h-[38px] flex items-center justify-center hover:bg-red-500 text-indigo-900/40 hover:text-white transition-colors"
+                  className="px-4 h-[38px] flex items-center justify-center hover:bg-destructive text-muted-foreground/50 hover:text-white transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1599,7 +1633,7 @@ Snippet:
           <aside className="w-12 glass-panel border-r flex flex-col items-center py-5 gap-6 shrink-0">
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isSidebarOpen ? 'text-indigo-600' : 'text-indigo-400/50'}`}
+                className={`transition-colors ${isSidebarOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/50'}`}
                 onClick={() => {
                   if (!activePath) {
                     toast.error('Open a folder first');
@@ -1615,7 +1649,7 @@ Snippet:
 
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isWorkspacePickerOpen ? 'text-indigo-600' : 'text-indigo-900/40 hover:text-indigo-600'}`}
+                className={`transition-colors ${isWorkspacePickerOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/60 hover:text-indigo-600 dark:hover:text-indigo-400'}`}
                 onClick={() => setIsWorkspacePickerOpen(true)}
               >
                 <Folder className="w-5 h-5" />
@@ -1625,7 +1659,7 @@ Snippet:
 
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isSettingsOpen ? 'text-indigo-600' : 'text-indigo-900/40'}`}
+                className={`transition-colors ${isSettingsOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/60'}`}
                 onClick={() => setIsSettingsOpen(true)}
               >
                 <SettingsIcon className="w-5 h-5" />
@@ -1636,7 +1670,7 @@ Snippet:
             <div className="mt-auto pb-4 flex flex-col gap-6">
               <Tooltip>
                 <TooltipTrigger 
-                  className={`transition-colors ${isTerminalOpen ? 'text-indigo-600' : 'text-indigo-900/40'}`}
+                  className={`transition-colors ${isTerminalOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/60'}`}
                   onClick={() => setIsTerminalOpen(!isTerminalOpen)}
                 >
                   <TerminalIcon className="w-5 h-5" />
@@ -1646,7 +1680,7 @@ Snippet:
 
               <Tooltip>
                 <TooltipTrigger 
-                  className={`transition-colors ${isSaving ? 'text-indigo-600 animate-pulse' : 'text-indigo-900/40'}`}
+                  className={`transition-colors ${isSaving ? 'text-indigo-600 dark:text-indigo-400 animate-pulse' : 'text-muted-foreground/40'}`}
                   onClick={handleSave}
                   disabled={isSaving || !activeFile}
                 >
@@ -1661,7 +1695,7 @@ Snippet:
                     render={
                       <DialogTrigger 
                         render={
-                          <button className={`transition-colors ${isSyncing ? 'text-indigo-600 animate-spin' : 'text-indigo-900/40'}`} />
+                          <button className={`transition-colors ${isSyncing ? 'text-indigo-600 dark:text-indigo-400 animate-spin' : 'text-muted-foreground/40'}`} />
                         } 
                       />
                     }
@@ -1682,22 +1716,22 @@ Snippet:
                   <div className="grid gap-4 py-4">
                     {!isGitHubConnected ? (
                       <div className="flex flex-col items-center gap-4 py-4">
-                        <p className="text-sm text-indigo-900/60 text-center">
+                        <p className="text-sm text-foreground/60 text-center">
                           Sign in with GitHub to sync your scripts to a private repository.
                         </p>
-                        <Button onClick={handleConnectGitHub} className="bg-indigo-950 hover:bg-indigo-900 text-white gap-2">
+                        <Button onClick={handleConnectGitHub} className="bg-indigo-950 dark:bg-indigo-800 hover:bg-indigo-900 dark:hover:bg-indigo-700 text-white gap-2">
                           <CloudUpload className="w-4 h-4" />
                           Connect GitHub
                         </Button>
                       </div>
                     ) : (
                       <div className="grid gap-4">
-                        <div className="flex items-center justify-between p-3 bg-green-50 border border-green-100 rounded-md">
-                          <div className="flex items-center gap-2 text-green-700 text-sm font-medium">
+                        <div className="flex items-center justify-between p-3 bg-green-500/5 dark:bg-green-500/10 border border-green-500/10 dark:border-green-500/20 rounded-md">
+                          <div className="flex items-center gap-2 text-green-700 dark:text-green-400 text-sm font-medium">
                             <div className="w-2 h-2 rounded-full bg-green-500" />
                             Connected to GitHub
                           </div>
-                          <Button variant="ghost" size="sm" className="h-7 text-xs text-gray-500" onClick={async () => {
+                          <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={async () => {
                             setGithubToken('');
                             setIsGitHubConnected(false);
                             localStorage.removeItem('sg_github_token');
@@ -1716,7 +1750,7 @@ Snippet:
                         </div>
                         
                         <div className="grid gap-2">
-                          <Label htmlFor="commitMessage">Commit Message (Optional)</Label>
+                          <Label htmlFor="commitMessage" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Commit Message (Optional)</Label>
                           <Input 
                             id="commitMessage" 
                             placeholder="e.g. Added new scene" 
@@ -1725,7 +1759,7 @@ Snippet:
                           />
                         </div>
 
-                        <p className="text-[10px] text-gray-500">
+                        <p className="text-[10px] text-muted-foreground">
                           This will create/update a repository named <strong>{getBasename(activePath)}</strong> on your GitHub account.
                         </p>
                       </div>
@@ -1765,7 +1799,7 @@ Snippet:
                 className="glass-panel border-r overflow-hidden flex flex-col shrink-0"
               >
                 <div className="flex-1 flex flex-col min-h-0">
-                  <div className="p-4 flex items-center justify-between text-[11px] font-bold text-indigo-900/40 uppercase tracking-widest border-b border-indigo-100/20">
+                  <div className="p-4 flex items-center justify-between text-[11px] font-bold text-muted-foreground/40 uppercase tracking-widest border-b border-border/50">
                     <span className="truncate">{getBasename(activePath)}</span>
                     <div className="flex items-center gap-1">
                       <Tooltip>
@@ -1801,8 +1835,8 @@ Snippet:
                           key={file}
                           className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all text-sm ${
                             activeFile === file 
-                              ? 'glass-card text-indigo-950 font-medium' 
-                              : 'hover:bg-indigo-50/30 text-indigo-900/60'
+                              ? 'glass-card text-foreground font-medium shadow-sm' 
+                              : 'hover:bg-indigo-500/10 text-foreground/60'
                           }`}
                           onClick={() => setActiveFile(file)}
                         >
@@ -1811,7 +1845,7 @@ Snippet:
                             <span className="truncate">{file}</span>
                           </div>
                           <button
-                            className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-md hover:bg-red-50"
+                            className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center text-muted-foreground/60 hover:text-destructive rounded-md hover:bg-destructive/10"
                             onClick={(e) => {
                               e.stopPropagation();
                               confirmDeleteFile(file);
@@ -1822,8 +1856,8 @@ Snippet:
                         </div>
                       )) : (
                         <div className="p-8 flex flex-col items-center justify-center text-center space-y-3">
-                          <FileText className="w-8 h-8 text-indigo-100" />
-                          <div className="text-xs text-indigo-900/30 italic">
+                  <FileText className="w-8 h-8 text-indigo-200/50" />
+                          <div className="text-xs text-muted-foreground/40 italic">
                             No scripts in this folder.
                           </div>
                           <Button variant="outline" size="sm" className="text-[10px]" onClick={() => setIsNewScriptOpen(true)}>
@@ -1862,7 +1896,7 @@ Snippet:
             <motion.div 
               key={`${activePath}-${projectKey}`}
               style={{ scale: zoom, transformOrigin: 'top center' }}
-              className="w-full max-w-[700px] h-fit min-h-full glass-panel rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-0 relative mb-10 cursor-text flex flex-col overflow-hidden"
+              className="w-full max-w-[700px] h-fit min-h-full glass-panel script-paper rounded-2xl shadow-[0_20px_50px_rgba(31,38,135,0.15)] p-0 relative mb-10 cursor-text flex flex-col overflow-hidden"
               onClick={(e) => {
                 if (e.target === e.currentTarget && editorRef.current) {
                   const lastLine = editorRef.current.lastElementChild as HTMLElement;
@@ -1886,15 +1920,15 @@ Snippet:
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="absolute inset-0 z-50 bg-white/60 backdrop-blur-md flex flex-col items-center justify-center space-y-4"
+                    className="absolute inset-0 z-50 bg-background/60 backdrop-blur-md flex flex-col items-center justify-center space-y-4"
                   >
                     <div className="relative">
-                      <Loader2 className="w-10 h-10 text-indigo-600 animate-spin opacity-40" />
+                      <Loader2 className="w-10 h-10 text-primary animate-spin opacity-40" />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                        <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                       </div>
                     </div>
-                    <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-indigo-900/40">
+                    <div className="text-[10px] uppercase tracking-[0.2em] font-bold text-muted-foreground/60">
                       Synchronizing Workspace
                     </div>
                   </motion.div>
@@ -2031,7 +2065,7 @@ Snippet:
                   }}
                 />
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-gray-400 space-y-4 py-32">
+                <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground/60 space-y-4 py-32">
                   <FileText className="w-12 h-12 opacity-20" />
                   <p className="text-sm">Select or create a script to begin</p>
                   <Button variant="glass" onClick={() => setIsNewScriptOpen(true)}>Create New Script</Button>
@@ -2053,14 +2087,14 @@ Snippet:
                   left: activeLineRect.left,
                   zIndex: 9999,
                 }}
-                className="w-64 glass-panel shadow-2xl rounded-xl border border-indigo-100/50 py-1 overflow-hidden"
+                className="w-64 glass-panel shadow-2xl rounded-xl border border-border/50 py-1 overflow-hidden"
               >
-                <div className="text-[9px] text-indigo-900/40 px-3 py-1 uppercase tracking-wider font-bold">Suggestions</div>
+                <div className="text-[9px] text-foreground/40 px-3 py-1 uppercase tracking-wider font-bold">Suggestions</div>
                 {autocompleteList.slice(0, 10).map((item, idx) => (
                   <button
                     key={item}
                     className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                      idx === autocompleteIndex ? 'bg-indigo-600 text-white' : 'hover:bg-indigo-50 text-indigo-900'
+                      idx === autocompleteIndex ? 'bg-primary text-white shadow-lg' : 'hover:bg-primary/10 text-foreground'
                     }`}
                     onClick={() => handleAutocompleteSelect(item)}
                   >
@@ -2080,19 +2114,19 @@ Snippet:
                 exit={{ width: 0, opacity: 0 }}
                 className="glass-panel border-l flex flex-col shrink-0 overflow-hidden h-full"
               >
-                <div className="p-4 border-b border-indigo-100/20 flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-900/40">
+                <div className="p-4 border-b border-border/50 flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">
                     {activeRightTab === 'formatting' ? 'Formatting' : 
                      activeRightTab === 'outline' ? 'Scene Navigator' : 
                      activeRightTab === 'ai' ? 'AI Enhance' : 'Title Page'}
                   </span>
                 </div>
                 
-                <ScrollArea className="flex-1 text-indigo-950 overflow-hidden min-h-0">
+                <ScrollArea className="flex-1 text-foreground overflow-hidden min-h-0">
                   {activeRightTab === 'formatting' ? (
                     <div className="p-4 space-y-6">
                       <div className="space-y-2">
-                        <div className="text-[11px] text-indigo-900/40 font-medium mb-3">ELEMENTS</div>
+                        <div className="text-[11px] text-muted-foreground/50 font-medium mb-3">ELEMENTS</div>
                         {[
                           { id: 'scene', label: 'Scene Heading', key: '1' },
                           { id: 'action', label: 'Action', key: '2' },
@@ -2112,12 +2146,12 @@ Snippet:
                             }}
                             className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all text-left text-sm group ${
                               activeType === item.id 
-                                ? 'bg-indigo-100 text-indigo-900 font-medium' 
-                                : 'hover:bg-indigo-50/50 text-indigo-950'
+                                ? 'bg-primary/10 text-primary font-medium' 
+                                : 'hover:bg-primary/5 text-foreground'
                             }`}
                           >
                             <span>{item.label}</span>
-                            <span className="text-[10px] text-indigo-900/30 group-hover:text-indigo-900/60 font-mono">
+                            <span className="text-[10px] text-muted-foreground/30 group-hover:text-muted-foreground/60 font-mono">
                               {navigator.platform.includes('Mac') ? '⌘' : 'Alt'}+{item.key}
                             </span>
                           </button>
@@ -2127,15 +2161,15 @@ Snippet:
                   ) : activeRightTab === 'ai' ? (
                     <div className="p-4 space-y-4">
                       <div className="space-y-3">
-                        <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Script Snippet</Label>
+                        <Label className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">Script Snippet</Label>
                         <textarea 
                           value={aiSnippet}
                           onChange={(e) => setAiSnippet(e.target.value)}
                           placeholder="Paste a dialogue or action line here..."
-                          className="w-full h-32 bg-white/50 border border-indigo-100 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none font-mono"
+                          className="w-full h-32 bg-secondary/50 border border-border rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none font-mono text-foreground"
                         />
                         <Button 
-                          className="w-full h-9 bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/20"
+                          className="w-full h-9 bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20"
                           onClick={handleGetAiSuggestions}
                           disabled={isAiLoading || !aiSnippet.trim()}
                         >
@@ -2152,12 +2186,12 @@ Snippet:
 
                       <div className="space-y-4 pt-2">
                         {aiOptions.map((opt, i) => (
-                          <div key={i} className="group relative bg-white/40 border border-indigo-50 rounded-xl p-3 hover:bg-white/60 transition-all">
-                            <div className="text-[9px] text-indigo-900/40 uppercase font-black mb-1">Option {i + 1}</div>
-                            <p className="text-xs leading-relaxed italic pr-8 whitespace-pre-wrap">{opt}</p>
+                          <div key={i} className="group relative bg-secondary/40 border border-border rounded-xl p-3 hover:bg-background transition-all">
+                            <div className="text-[10px] text-foreground/40 uppercase font-black mb-1">Option {i + 1}</div>
+                            <p className="text-xs leading-relaxed italic pr-8 whitespace-pre-wrap text-foreground">{opt}</p>
                             <button 
                               onClick={() => copyToClipboard(opt, i)}
-                              className="absolute top-3 right-3 p-1.5 rounded-md hover:bg-indigo-100 text-indigo-400 hover:text-indigo-600 transition-colors"
+                              className="absolute top-3 right-3 p-1.5 rounded-md hover:bg-indigo-500/10 text-muted-foreground hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                             >
                               {copiedIndex === i ? (
                                 <Check className="w-3.5 h-3.5 text-green-500" />
@@ -2198,16 +2232,16 @@ Snippet:
                               }
                               setActiveBlockId(block.id);
                             }}
-                            className={`w-full text-left px-3 py-2 rounded-lg transition-all group ${activeBlockId === block.id ? 'bg-indigo-50 border-l-2 border-indigo-500' : 'hover:bg-indigo-50/50'}`}
+                            className={`w-full text-left px-3 py-2 rounded-lg transition-all group ${activeBlockId === block.id ? 'bg-primary/10 border-l-2 border-primary' : 'hover:bg-primary/5'}`}
                           >
-                            <div className="text-[10px] text-indigo-900/40 font-mono mb-0.5">SCENE {idx + 1}</div>
-                            <div className="text-xs font-bold text-indigo-900 truncate">
+                            <div className="text-[10px] text-muted-foreground font-mono mb-0.5">SCENE {idx + 1}</div>
+                            <div className="text-xs font-bold text-foreground truncate">
                               {block.content || 'Untitled Scene'}
                             </div>
                           </button>
                         ))}
                         {blocks.filter(b => b.type === 'scene').length === 0 && (
-                          <div className="text-xs text-indigo-900/30 italic p-3">
+                          <div className="text-xs text-muted-foreground/40 italic p-3">
                             No scenes headings found.
                           </div>
                         )}
@@ -2217,7 +2251,7 @@ Snippet:
                     <div className="p-4 space-y-4">
                       <div className="space-y-3">
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Title</Label>
+                          <Label className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">Title</Label>
                           <Input 
                             value={titlePage.title}
                             onChange={(e) => setTitlePage({...titlePage, title: e.target.value})}
@@ -2226,7 +2260,7 @@ Snippet:
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Credit</Label>
+                          <Label className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">Credit</Label>
                           <Input 
                             value={titlePage.credit}
                             onChange={(e) => setTitlePage({...titlePage, credit: e.target.value})}
@@ -2235,7 +2269,7 @@ Snippet:
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Author</Label>
+                          <Label className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">Author</Label>
                           <Input 
                             value={titlePage.author}
                             onChange={(e) => setTitlePage({...titlePage, author: e.target.value})}
@@ -2244,7 +2278,7 @@ Snippet:
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Source</Label>
+                          <Label className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">Source</Label>
                           <Input 
                             value={titlePage.source}
                             onChange={(e) => setTitlePage({...titlePage, source: e.target.value})}
@@ -2253,7 +2287,7 @@ Snippet:
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-indigo-900/40 uppercase tracking-wider">Contact</Label>
+                          <Label className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">Contact</Label>
                           <Input 
                             value={titlePage.contact}
                             onChange={(e) => setTitlePage({...titlePage, contact: e.target.value})}
@@ -2350,25 +2384,30 @@ Snippet:
               exit={{ height: 0 }}
               className="glass-panel border-t overflow-hidden flex flex-col shrink-0"
             >
-              <div className="flex items-center justify-between px-4 py-2 border-b border-indigo-100/20 bg-white/30">
-                <div className="flex items-center gap-3 text-[10px] text-indigo-900/40 uppercase tracking-[1px] font-medium">
-                  <span>Standard Terminal</span>
+              <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-muted/30 backdrop-blur-sm">
+                <div className="flex items-center gap-3 text-[10px] text-muted-foreground/50 uppercase tracking-[1px] font-bold">
+                  <div className="flex gap-1.5 mr-1">
+                    <div className="w-2 h-2 rounded-full bg-red-400/30" />
+                    <div className="w-2 h-2 rounded-full bg-amber-400/30" />
+                    <div className="w-2 h-2 rounded-full bg-emerald-400/30" />
+                  </div>
+                  <span className="text-foreground/40">Terminal</span>
                   <span className="opacity-30">|</span>
-                  <span className="normal-case opacity-60 font-mono text-[9px]">{activePath || 'no-workspace'}</span>
+                  <span className="normal-case opacity-60 font-mono text-[9px] truncate max-w-[300px]">{activePath || 'no-workspace'}</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <button 
-                    className="p-1 hover:bg-indigo-500/10 rounded-md text-indigo-900/40 hover:text-red-500 transition-colors"
+                    className="p-1.5 hover:bg-destructive/10 rounded-md text-muted-foreground/40 hover:text-destructive transition-colors group"
                     onClick={() => {
                       setTerminalOutput([]);
                       setIsTerminalOpen(false);
                     }}
-                    title="Kill / Clear Terminal"
+                    title="Clear Terminal"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                   </button>
                   <button 
-                    className="p-1 hover:bg-indigo-500/10 rounded-md text-indigo-900/40 hover:text-indigo-900 transition-colors" 
+                    className="p-1.5 hover:bg-secondary rounded-md text-muted-foreground/40 hover:text-foreground transition-colors" 
                     onClick={() => setIsTerminalOpen(false)}
                   >
                     <ChevronLeft className="w-4 h-4 rotate-[-90deg]" />
@@ -2376,10 +2415,10 @@ Snippet:
                 </div>
               </div>
 
-              <div className="flex-1 flex flex-col overflow-hidden bg-white/20">
+              <div className="flex-1 flex flex-col overflow-hidden bg-black/5 dark:bg-black/20">
                 <div 
                   ref={terminalScrollRef}
-                  className="flex-1 overflow-y-auto p-4 font-mono text-[11px] selection:bg-indigo-500/30 scrollbar-hide"
+                  className="flex-1 overflow-y-auto p-4 font-mono text-[11px] selection:bg-primary/30 scrollbar-hide"
                   onClick={() => {
                     const input = document.getElementById('terminal-input');
                     if (input) input.focus();
@@ -2387,12 +2426,12 @@ Snippet:
                 >
                   {terminalOutput.map((line, i) => (
                     <div key={i} className={`whitespace-pre-wrap mb-0.5 ${
-                      line.type === 'command' ? 'text-indigo-950 font-bold' :
+                      line.type === 'command' ? 'text-foreground font-bold' :
                       line.type === 'stderr' ? 'text-amber-600' :
-                      line.type === 'error' ? 'text-red-500' : 'text-indigo-900/70'
+                      line.type === 'error' ? 'text-red-500' : 'text-foreground/70'
                     }`}>
                       {line.type === 'command' && (
-                        <span className="text-indigo-600 mr-2 font-bold">
+                        <span className="text-indigo-600 dark:text-indigo-400 mr-2 font-bold">
                           <span className="opacity-40">[{getShortPath(activePath)}]</span>
                           <span className="ml-1">$</span>
                         </span>
@@ -2405,9 +2444,9 @@ Snippet:
                     onSubmit={executeTerminalCommand}
                     className="mt-1 flex items-center gap-0"
                   >
-                    <span className="text-indigo-600 shrink-0 font-bold mr-2 whitespace-nowrap">
-                      <span className="opacity-40">[{getShortPath(activePath || 'sg')}]</span>
-                      <span className="ml-1 font-black">$</span>
+                    <span className="text-primary dark:text-indigo-400 shrink-0 font-bold mr-2 whitespace-nowrap">
+                      <span className="opacity-40 font-mono tracking-tighter">[{getShortPath(activePath || 'sg')}]</span>
+                      <span className="ml-1 font-black shadow-sm">$</span>
                     </span>
                     <input
                       id="terminal-input"
@@ -2417,7 +2456,7 @@ Snippet:
                       placeholder=""
                       autoComplete="off"
                       spellCheck="false"
-                      className="flex-1 bg-transparent border-none outline-none text-indigo-950 font-mono caret-indigo-500"
+                      className="flex-1 bg-transparent border-none outline-none text-foreground font-mono caret-primary focus:ring-0"
                       autoFocus
                     />
                   </form>
@@ -2428,13 +2467,13 @@ Snippet:
         </AnimatePresence>
 
         {/* Status Bar */}
-        <footer className="h-[28px] glass-panel border-t flex items-center justify-between px-4 text-[11px] text-indigo-900/60 shrink-0">
+        <footer className="h-[28px] glass-panel border-t flex items-center justify-between px-4 text-[11px] text-foreground/60 shrink-0">
           <div className="flex items-center gap-5">
-            <div className="flex items-center gap-1.5 text-indigo-900 font-medium">
-              <GitBranch className={`w-3.5 h-3.5 ${isGitHubConnected ? 'text-indigo-600' : 'text-gray-400'}`} />
+            <div className="flex items-center gap-1.5 text-foreground font-medium">
+              <GitBranch className={`w-3.5 h-3.5 ${isGitHubConnected ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/40'}`} />
               <span className="flex items-center">
                 {!isGitHubConnected ? (
-                  <span className="text-gray-400 font-normal italic select-none">GitHub Disconnected</span>
+                  <span className="text-muted-foreground/40 font-normal italic select-none">GitHub Disconnected</span>
                 ) : (
                   <>
                     {gitStatus?.branch || 'main'}
@@ -2442,7 +2481,7 @@ Snippet:
                       (gitStatus.status?.files?.length ?? 0) > 0 || 
                       (gitStatus.status?.ahead ?? 0) > 0
                     ))) ? (
-                      <span className="ml-0.5 text-indigo-600 font-bold" title="Unsaved or uncommitted changes">*</span>
+                      <span className="ml-0.5 text-indigo-600 dark:text-indigo-400 font-bold" title="Unsaved or uncommitted changes">*</span>
                     ) : null}
                   </>
                 )}
@@ -2461,7 +2500,7 @@ Snippet:
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
-                className="w-10 h-6 bg-transparent border-b border-indigo-900/10 hover:border-indigo-400 focus:border-indigo-500 text-center outline-none transition-all font-medium pt-0.5 text-indigo-900"
+                className="w-10 h-6 bg-transparent border-b border-border/50 hover:border-indigo-400 focus:border-indigo-500 text-center outline-none transition-all font-medium pt-0.5 text-foreground"
               />
               <span className="opacity-60">of {pageCount}</span>
             </div>
@@ -2485,7 +2524,7 @@ Snippet:
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="baseDir">Default Projects Location</Label>
+                <Label htmlFor="baseDir" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Default Projects Location</Label>
                 <Input 
                   id="baseDir" 
                   value={settings.baseProjectsDir}
@@ -2494,7 +2533,7 @@ Snippet:
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="geminiKey">Gemini API Key</Label>
+                <Label htmlFor="geminiKey" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Gemini API Key</Label>
                 <Input 
                   id="geminiKey" 
                   type="password"
@@ -2502,9 +2541,39 @@ Snippet:
                   onChange={(e) => setSettings({ ...settings, geminiKey: e.target.value })}
                   placeholder="Paste your API key here"
                 />
-                <p className="text-[10px] text-gray-500">
+                <p className="text-[10px] text-muted-foreground">
                   Required for AI Enhance features. Your key is stored locally in your browser.
                 </p>
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Theme</Label>
+                <div className="flex bg-indigo-50/50 dark:bg-white/5 rounded-lg p-1 gap-1">
+                  {(['light', 'dark', 'system'] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={async () => {
+                        const newSettings = { ...settings, theme: t };
+                        setSettings(newSettings);
+                        // Save immediately to server as well
+                        try {
+                          await apiCall('/api/settings', {
+                            method: 'POST',
+                            body: newSettings,
+                          });
+                        } catch (e) {
+                          console.error("Failed to sync theme to server", e);
+                        }
+                      }}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-medium transition-all ${
+                        settings.theme === t 
+                          ? 'bg-white dark:bg-indigo-500 text-indigo-600 dark:text-white shadow-sm' 
+                          : 'text-muted-foreground hover:text-indigo-900 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      <span className="capitalize">{t === 'system' ? 'Same as system' : t}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             <DialogFooter>
@@ -2524,10 +2593,10 @@ Snippet:
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="flex gap-2 p-1 bg-[#ebebeb] rounded-md">
+              <div className="flex gap-1.5 p-1.5 bg-muted/50 rounded-xl border border-border/50">
                 <Button 
                   variant={workspaceData.type === 'open' ? 'secondary' : 'ghost'} 
-                  className="flex-1 h-8 text-xs px-2"
+                  className={`flex-1 h-9 text-xs rounded-lg transition-all ${workspaceData.type === 'open' ? 'bg-background shadow-sm text-primary font-bold' : 'text-muted-foreground'}`}
                   onClick={() => setWorkspaceData({ ...workspaceData, type: 'open' })}
                 >
                   <Folder className="w-3 h-3 mr-1.5" />
@@ -2535,7 +2604,7 @@ Snippet:
                 </Button>
                 <Button 
                   variant={workspaceData.type === 'create' ? 'secondary' : 'ghost'} 
-                  className="flex-1 h-8 text-xs px-2"
+                  className={`flex-1 h-9 text-xs rounded-lg transition-all ${workspaceData.type === 'create' ? 'bg-background shadow-sm text-primary font-bold' : 'text-muted-foreground'}`}
                   onClick={() => setWorkspaceData({ ...workspaceData, type: 'create' })}
                 >
                   <FolderPlus className="w-3 h-3 mr-1.5" />
@@ -2543,7 +2612,7 @@ Snippet:
                 </Button>
                 <Button 
                   variant={workspaceData.type === 'clone' ? 'secondary' : 'ghost'} 
-                  className="flex-1 h-8 text-xs px-2"
+                  className={`flex-1 h-9 text-xs rounded-lg transition-all ${workspaceData.type === 'clone' ? 'bg-background shadow-sm text-primary font-bold' : 'text-muted-foreground'}`}
                   onClick={() => setWorkspaceData({ ...workspaceData, type: 'clone' })}
                 >
                   <CloudUpload className="w-3 h-3 mr-1.5" />
@@ -2554,22 +2623,22 @@ Snippet:
               {workspaceData.type === 'create' ? (
                 <div className="grid gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="folderName">New Folder Name</Label>
+                    <Label htmlFor="folderName" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">New Folder Name</Label>
                     <Input 
                       id="folderName" 
                       placeholder="e.g. my-new-screenplay"
                       value={workspaceData.name}
                       onChange={(e) => setWorkspaceData({ ...workspaceData, name: e.target.value })}
                     />
-                    <p className="text-[10px] text-gray-500">
-                      Will be created in: {settings.baseProjectsDir || 'default location'}
+                    <p className="text-[10px] text-muted-foreground">
+                      Will be created in: <span className="text-foreground/80 font-mono italic">{settings.baseProjectsDir || 'default location'}</span>
                     </p>
                   </div>
                 </div>
               ) : (
                 <div className="grid gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="workspacePath">{workspaceData.type === 'clone' ? 'Target Folder Path' : 'Absolute Folder Path'}</Label>
+                    <Label htmlFor="workspacePath" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">{workspaceData.type === 'clone' ? 'Target Folder Path' : 'Absolute Folder Path'}</Label>
                     <div className="flex gap-2">
                       <Input 
                         id="workspacePath" 
@@ -2593,7 +2662,7 @@ Snippet:
 
                   {recentFolders.length > 0 && workspaceData.type === 'open' && (
                     <div className="grid gap-2">
-                      <Label className="text-[10px] text-gray-500 uppercase tracking-wider">Recently Used</Label>
+                      <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Recently Used</Label>
                       <div className="flex flex-col gap-1">
                         {recentFolders.map((p) => (
                           <button
@@ -2602,12 +2671,12 @@ Snippet:
                               setWorkspaceData({ ...workspaceData, path: p, type: 'open' });
                               handleOpenWorkspace(p);
                             }}
-                            className="text-left text-xs px-2 py-1.5 rounded hover:bg-gray-100 flex items-center gap-2 group overflow-hidden"
+                            className="text-left text-xs px-2 py-1.5 rounded hover:bg-secondary flex items-center gap-2 group overflow-hidden transition-colors"
                             title={p}
                           >
-                            <Clock className="w-3 h-3 text-gray-400" />
-                            <span className="truncate flex-1">{getBasename(p)}</span>
-                            <span className="text-[9px] text-gray-400 opacity-0 group-hover:opacity-100 truncate">{p}</span>
+                            <Clock className="w-3 h-3 text-muted-foreground" />
+                            <span className="truncate flex-1 text-foreground">{getBasename(p)}</span>
+                            <span className="text-[9px] text-muted-foreground opacity-0 group-hover:opacity-100 truncate">{p}</span>
                           </button>
                         ))}
                       </div>
@@ -2618,7 +2687,7 @@ Snippet:
 
               {workspaceData.type === 'clone' && (
                 <div className="grid gap-2">
-                  <Label htmlFor="gitUrl">Git Repository URL</Label>
+                  <Label htmlFor="gitUrl" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Git Repository URL</Label>
                   <Input 
                     id="gitUrl" 
                     placeholder="https://github.com/user/repo.git"
@@ -2648,16 +2717,16 @@ Snippet:
               </DialogDescription>
             </DialogHeader>
             <div className="flex-1 overflow-hidden flex flex-col gap-4 p-6">
-              <div className="flex items-center gap-2 p-2 bg-indigo-50/50 rounded-lg border border-indigo-100 overflow-hidden shrink-0">
-                <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
-                <span className="text-[11px] font-mono text-indigo-900 truncate" title={browserData.currentPath}>
+              <div className="flex items-center gap-2 p-2 bg-secondary rounded-lg border border-border overflow-hidden shrink-0">
+                <Folder className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-[11px] font-mono text-foreground truncate" title={browserData.currentPath}>
                   {browserData.currentPath || 'Loading...'}
                 </span>
               </div>
               
-              <div className="flex flex-col border rounded-lg flex-1 min-h-[300px] max-h-[450px] overflow-hidden bg-white shadow-inner">
-                <div className="p-2 border-b bg-gray-50/80 flex items-center justify-between shrink-0">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Directories</span>
+              <div className="flex flex-col border rounded-lg flex-1 min-h-[300px] max-h-[450px] overflow-hidden bg-card shadow-inner">
+                <div className="p-2 border-b bg-muted/30 flex items-center justify-between shrink-0">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Directories</span>
                   <Button 
                     variant="ghost" 
                     size="sm" 
@@ -2671,7 +2740,7 @@ Snippet:
                 </div>
                 <div className="flex-1 overflow-y-auto p-1 custom-scrollbar">
                   {browserData.directories.length === 0 ? (
-                    <div className="p-8 text-center text-xs text-gray-400 italic">
+                    <div className="p-8 text-center text-xs text-muted-foreground italic">
                       No subdirectories found
                     </div>
                   ) : (
@@ -2679,9 +2748,9 @@ Snippet:
                       <button
                         key={dir}
                         onClick={() => handleBrowseNavigate(dir)}
-                        className="w-full text-left text-xs px-3 py-2 rounded-md hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-3 transition-colors group"
+                        className="w-full text-left text-xs px-3 py-2 rounded-md hover:bg-primary/10 hover:text-primary flex items-center gap-3 transition-colors group text-foreground"
                       >
-                        <Folder className="w-3.5 h-3.5 text-indigo-300 group-hover:text-indigo-500" />
+                        <Folder className="w-3.5 h-3.5 text-primary/40 group-hover:text-primary" />
                         <span className="truncate">{dir}</span>
                       </button>
                     ))
@@ -2691,7 +2760,7 @@ Snippet:
             </div>
             <DialogFooter className="p-6 pt-0 gap-2">
               <Button variant="outline" onClick={() => setIsBrowserOpen(false)}>Cancel</Button>
-              <Button onClick={handleSelectFolder} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+              <Button onClick={handleSelectFolder} className="bg-primary hover:bg-primary/90 text-white">
                 Select This Folder
               </Button>
             </DialogFooter>
@@ -2729,7 +2798,7 @@ Snippet:
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="scriptName">Script Name</Label>
+                <Label htmlFor="scriptName" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Script Name</Label>
                 <Input 
                   id="scriptName" 
                   placeholder="e.g. pilot_episode" 
@@ -2739,7 +2808,7 @@ Snippet:
                     if (e.key === 'Enter') handleCreateFile();
                   }}
                 />
-                <p className="text-[10px] text-gray-500">
+                <p className="text-[10px] text-muted-foreground">
                   The .fountain extension will be added automatically.
                 </p>
               </div>

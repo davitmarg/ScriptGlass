@@ -20,7 +20,8 @@ export class SettingsManager {
     baseProjectsDir: string; 
     githubToken?: string; 
     geminiKey?: string;
-  } = { baseProjectsDir: DEFAULT_STORAGE_DIR };
+    theme?: string;
+  } = { baseProjectsDir: DEFAULT_STORAGE_DIR, theme: 'system' };
 
   constructor(configPath: string) {
     this.configPath = configPath;
@@ -47,12 +48,15 @@ export class SettingsManager {
   set githubToken(val: string | undefined) { this.config.githubToken = val; }
   get geminiKey() { return this.config.geminiKey; }
   set geminiKey(val: string | undefined) { this.config.geminiKey = val; }
+  get theme() { return this.config.theme; }
+  set theme(val: string | undefined) { this.config.theme = val; }
   
   getConfig() {
     return { 
       baseProjectsDir: this.baseDir,
       githubToken: this.githubToken,
-      geminiKey: this.geminiKey
+      geminiKey: this.geminiKey,
+      theme: this.theme
     };
   }
 }
