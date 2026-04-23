@@ -278,7 +278,7 @@ export default function App() {
       setIsGitHubConnected(true);
     }
 
-    if (lastPath) {
+    if (lastPath && lastPath !== 'undefined' && lastPath !== 'null') {
       // Small timeout to allow basic init
       setTimeout(() => {
         handleOpenWorkspace(lastPath);
@@ -1318,8 +1318,10 @@ export default function App() {
       });
       setActivePath(data.path);
       setProjectKey(prev => prev + 1);
-      localStorage.setItem('sg_last_path', data.path);
-      addToRecentFolders(data.path);
+      if (data.path && data.path !== 'undefined' && data.path !== 'null') {
+        localStorage.setItem('sg_last_path', data.path);
+        addToRecentFolders(data.path);
+      }
       setIsWorkspacePickerOpen(false);
       setWorkspaceData({ path: '', type: 'open', url: '', name: '' });
 
@@ -1750,42 +1752,127 @@ Snippet:
               <TooltipTrigger 
                 className={`transition-colors ${isSidebarOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/50'}`}
                 onClick={() => {
-                  if (!activePath) {
-                    toast.error('Open a folder first');
-                    return;
-                  }
                   if (!isSidebarOpen) {
                     setIsTerminalOpen(false);
                   }
                   setIsSidebarOpen(!isSidebarOpen);
                 }}
               >
-                <FileText className="w-5 h-5" />
+                <Folder className="w-5 h-5" />
               </TooltipTrigger>
               <TooltipContent side="right">Scripts</TooltipContent>
             </Tooltip>
 
             <Tooltip>
               <TooltipTrigger 
-                className={`transition-colors ${isWorkspacePickerOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/60 hover:text-indigo-600 dark:hover:text-indigo-400'}`}
-                onClick={() => setIsWorkspacePickerOpen(true)}
+                className={`transition-colors ${isSaving ? 'text-indigo-600 dark:text-indigo-400 animate-pulse' : 'text-muted-foreground/40'}`}
+                onClick={handleSave}
+                disabled={isSaving || !activeFile}
               >
-                <Folder className="w-5 h-5" />
+                <Save className="w-5 h-5" />
               </TooltipTrigger>
-              <TooltipContent side="right">Open Folder</TooltipContent>
+              <TooltipContent side="right">Save Locally</TooltipContent>
             </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger 
-                className={`transition-colors ${isSettingsOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/60'}`}
-                onClick={() => setIsSettingsOpen(true)}
-              >
-                <SettingsIcon className="w-5 h-5" />
-              </TooltipTrigger>
-              <TooltipContent side="right">Settings</TooltipContent>
-            </Tooltip>
+            <Dialog>
+              <Tooltip>
+                <TooltipTrigger 
+                  render={
+                    <DialogTrigger 
+                      render={
+                        <button className={`transition-colors ${isSyncing ? 'text-indigo-600 dark:text-indigo-400 animate-spin' : 'text-muted-foreground/40'}`} />
+                      } 
+                    />
+                  }
+                >
+                  <CloudUpload className="w-5 h-5" />
+                </TooltipTrigger>
+                <TooltipContent side="right">GitHub Sync</TooltipContent>
+              </Tooltip>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>GitHub Integration</DialogTitle>
+                  <DialogDescription>
+                    {isGitHubConnected 
+                      ? `Syncing workspace "${getBasename(activePath)}" to GitHub.`
+                      : "Connect your GitHub account to sync your scripts to a private repository."}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  {!isGitHubConnected ? (
+                    <div className="flex flex-col items-center gap-4 py-4">
+                      <p className="text-sm text-foreground/60 text-center">
+                        Sign in with GitHub to sync your scripts to a private repository.
+                      </p>
+                      <Button onClick={handleConnectGitHub} className="bg-indigo-950 dark:bg-indigo-800 hover:bg-indigo-900 dark:hover:bg-indigo-700 text-white gap-2">
+                        <CloudUpload className="w-4 h-4" />
+                        Connect GitHub
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="grid gap-4">
+                      <div className="flex items-center justify-between p-3 bg-green-500/5 dark:bg-green-500/10 border border-green-500/10 dark:border-green-500/20 rounded-md">
+                        <div className="flex items-center gap-2 text-green-700 dark:text-green-400 text-sm font-medium">
+                          <div className="w-2 h-2 rounded-full bg-green-500" />
+                          Connected to GitHub
+                        </div>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={async () => {
+                          setGithubToken('');
+                          setIsGitHubConnected(false);
+                          localStorage.removeItem('sg_github_token');
+                          try {
+                            await apiCall('/api/settings', {
+                              method: 'POST',
+                              body: { githubToken: null },
+                            });
+                            toast.success('GitHub account disconnected');
+                          } catch (error) {
+                            console.error('Failed to clear GitHub token on server');
+                          }
+                        }}>
+                          Disconnect
+                        </Button>
+                      </div>
+                      
+                      <div className="grid gap-2">
+                        <Label htmlFor="commitMessage" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Commit Message (Optional)</Label>
+                        <Input 
+                          id="commitMessage" 
+                          placeholder="e.g. Added new scene" 
+                          value={syncCommitMessage}
+                          onChange={(e) => setSyncCommitMessage(e.target.value)}
+                        />
+                      </div>
 
-            <div className="mt-auto pb-4 flex flex-col gap-6">
+                      <p className="text-[10px] text-muted-foreground">
+                        This will create/update a repository named <strong>{getBasename(activePath)}</strong> on your GitHub account.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter className="gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={handlePull} 
+                    disabled={isPulling || isSyncing || !isGitHubConnected || !activePath}
+                    className="gap-2"
+                  >
+                    <Download className={`w-4 h-4 ${isPulling ? 'animate-bounce' : ''}`} />
+                    {isPulling ? 'Getting Latest...' : 'Get Latest'}
+                  </Button>
+                  <Button 
+                    onClick={handleSync} 
+                    disabled={isSyncing || isPulling || !isGitHubConnected || !activePath}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+                  >
+                    <Upload className={`w-4 h-4 ${isSyncing ? 'animate-bounce' : ''}`} />
+                    {isSyncing ? 'Syncing...' : 'Sync Now'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <div className="mt-auto flex flex-col gap-6">
               <Tooltip>
                 <TooltipTrigger 
                   className={`transition-colors ${isTerminalOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/60'}`}
@@ -1803,118 +1890,19 @@ Snippet:
 
               <Tooltip>
                 <TooltipTrigger 
-                  className={`transition-colors ${isSaving ? 'text-indigo-600 dark:text-indigo-400 animate-pulse' : 'text-muted-foreground/40'}`}
-                  onClick={handleSave}
-                  disabled={isSaving || !activeFile}
+                  className={`transition-colors ${isSettingsOpen ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/60'}`}
+                  onClick={() => setIsSettingsOpen(true)}
                 >
-                  <Save className="w-5 h-5" />
+                  <SettingsIcon className="w-5 h-5" />
                 </TooltipTrigger>
-                <TooltipContent side="right">Save Locally</TooltipContent>
+                <TooltipContent side="right">Settings</TooltipContent>
               </Tooltip>
-
-              <Dialog>
-                <Tooltip>
-                  <TooltipTrigger 
-                    render={
-                      <DialogTrigger 
-                        render={
-                          <button className={`transition-colors ${isSyncing ? 'text-indigo-600 dark:text-indigo-400 animate-spin' : 'text-muted-foreground/40'}`} />
-                        } 
-                      />
-                    }
-                  >
-                    <CloudUpload className="w-5 h-5" />
-                  </TooltipTrigger>
-                  <TooltipContent side="right">GitHub Sync</TooltipContent>
-                </Tooltip>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>GitHub Integration</DialogTitle>
-                    <DialogDescription>
-                      {isGitHubConnected 
-                        ? `Syncing workspace "${getBasename(activePath)}" to GitHub.`
-                        : "Connect your GitHub account to sync your scripts to a private repository."}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    {!isGitHubConnected ? (
-                      <div className="flex flex-col items-center gap-4 py-4">
-                        <p className="text-sm text-foreground/60 text-center">
-                          Sign in with GitHub to sync your scripts to a private repository.
-                        </p>
-                        <Button onClick={handleConnectGitHub} className="bg-indigo-950 dark:bg-indigo-800 hover:bg-indigo-900 dark:hover:bg-indigo-700 text-white gap-2">
-                          <CloudUpload className="w-4 h-4" />
-                          Connect GitHub
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="grid gap-4">
-                        <div className="flex items-center justify-between p-3 bg-green-500/5 dark:bg-green-500/10 border border-green-500/10 dark:border-green-500/20 rounded-md">
-                          <div className="flex items-center gap-2 text-green-700 dark:text-green-400 text-sm font-medium">
-                            <div className="w-2 h-2 rounded-full bg-green-500" />
-                            Connected to GitHub
-                          </div>
-                          <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={async () => {
-                            setGithubToken('');
-                            setIsGitHubConnected(false);
-                            localStorage.removeItem('sg_github_token');
-                            try {
-                              await apiCall('/api/settings', {
-                                method: 'POST',
-                                body: { githubToken: null },
-                              });
-                              toast.success('GitHub account disconnected');
-                            } catch (error) {
-                              console.error('Failed to clear GitHub token on server');
-                            }
-                          }}>
-                            Disconnect
-                          </Button>
-                        </div>
-                        
-                        <div className="grid gap-2">
-                          <Label htmlFor="commitMessage" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Commit Message (Optional)</Label>
-                          <Input 
-                            id="commitMessage" 
-                            placeholder="e.g. Added new scene" 
-                            value={syncCommitMessage}
-                            onChange={(e) => setSyncCommitMessage(e.target.value)}
-                          />
-                        </div>
-
-                        <p className="text-[10px] text-muted-foreground">
-                          This will create/update a repository named <strong>{getBasename(activePath)}</strong> on your GitHub account.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                  <DialogFooter className="gap-2">
-                    <Button 
-                      variant="outline" 
-                      onClick={handlePull} 
-                      disabled={isPulling || isSyncing || !isGitHubConnected || !activePath}
-                      className="gap-2"
-                    >
-                      <Download className={`w-4 h-4 ${isPulling ? 'animate-bounce' : ''}`} />
-                      {isPulling ? 'Getting Latest...' : 'Get Latest'}
-                    </Button>
-                    <Button 
-                      onClick={handleSync} 
-                      disabled={isSyncing || isPulling || !isGitHubConnected || !activePath}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
-                    >
-                      <Upload className={`w-4 h-4 ${isSyncing ? 'animate-bounce' : ''}`} />
-                      {isSyncing ? 'Syncing...' : 'Sync Now'}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
             </div>
           </motion.aside>
 
           {/* File List (Conditional) */}
           <AnimatePresence>
-            {isSidebarOpen && activePath && (
+            {isSidebarOpen && (
               <motion.div
                 initial={{ width: 0, opacity: 0, x: -20 }}
                 animate={{ width: 260, opacity: 1, x: 0 }}
@@ -1925,31 +1913,35 @@ Snippet:
               >
                 <div className="flex-1 flex flex-col min-h-0">
                   <div className="p-4 flex items-center justify-between text-[11px] font-bold text-muted-foreground/40 uppercase tracking-widest border-b border-border/50">
-                    <span className="truncate">{getBasename(activePath)}</span>
+                    <span className="truncate">{activePath ? getBasename(activePath) : 'Workspace'}</span>
                     <div className="flex items-center gap-1">
-                      <Tooltip>
-                        <TooltipTrigger 
-                          onClick={() => {
-                            if (activePath) {
-                              fetchFiles(activePath);
-                              fetchGitStatus(activePath);
-                            }
-                          }} 
-                          className="hover:text-indigo-600 p-1"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                        </TooltipTrigger>
-                        <TooltipContent>Refresh Workspace</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger 
-                          onClick={() => setIsNewScriptOpen(true)} 
-                          className="hover:text-indigo-600 p-1"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </TooltipTrigger>
-                        <TooltipContent>New Script</TooltipContent>
-                      </Tooltip>
+                      {activePath && (
+                        <>
+                          <Tooltip>
+                            <TooltipTrigger 
+                              onClick={() => {
+                                if (activePath) {
+                                  fetchFiles(activePath);
+                                  fetchGitStatus(activePath);
+                                }
+                              }} 
+                              className="hover:text-indigo-600 p-1"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </TooltipTrigger>
+                            <TooltipContent>Refresh Workspace</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger 
+                              onClick={() => setIsNewScriptOpen(true)} 
+                              className="hover:text-indigo-600 p-1"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </TooltipTrigger>
+                            <TooltipContent>New Script</TooltipContent>
+                          </Tooltip>
+                        </>
+                      )}
                       <Tooltip>
                         <TooltipTrigger 
                           onClick={() => setIsSidebarOpen(false)} 
@@ -1963,42 +1955,75 @@ Snippet:
                   </div>
                   
                   <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1 custom-scrollbar">
-                    {files.length > 0 ? files.map((file) => (
-                      <div
-                        key={file}
-                        className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all text-sm ${
-                          activeFile === file 
-                            ? 'glass-card text-foreground font-medium shadow-sm' 
-                            : 'hover:bg-indigo-500/10 text-foreground/60'
-                        }`}
-                        onClick={() => setActiveFile(file)}
-                      >
-                        <div className="flex items-center gap-2 overflow-hidden px-1">
-                          <FileText className="w-4 h-4 flex-shrink-0" />
-                          <span className="truncate">{file}</span>
+                    {!activePath ? (
+                      <div className="p-8 flex flex-col items-center justify-center text-center space-y-4 h-full">
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-500/5 flex items-center justify-center">
+                          <FolderPlus className="w-6 h-6 text-indigo-400" />
                         </div>
-                        <button
-                          className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center text-muted-foreground/60 hover:text-destructive rounded-md hover:bg-destructive/10"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            confirmDeleteFile(file);
-                          }}
+                        <div className="space-y-1">
+                          <div className="text-sm font-medium text-foreground">No Folder Open</div>
+                          <p className="text-[10px] text-muted-foreground/60 leading-relaxed px-4">
+                            Open a folder from your computer or clone a GitHub repository to start writing.
+                          </p>
+                        </div>
+                        <Button 
+                          onClick={() => setIsWorkspacePickerOpen(true)}
+                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-9 text-xs"
                         >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )) : (
-                      <div className="p-8 flex flex-col items-center justify-center text-center space-y-3">
-                        <FileText className="w-8 h-8 text-indigo-200/50" />
-                        <div className="text-xs text-muted-foreground/40 italic">
-                          No scripts in this folder.
-                        </div>
-                        <Button variant="outline" size="sm" className="text-[10px]" onClick={() => setIsNewScriptOpen(true)}>
-                          Create First Script
+                          Open Folder
                         </Button>
                       </div>
+                    ) : (
+                      files.length > 0 ? files.map((file) => (
+                        <div
+                          key={file}
+                          className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all text-sm ${
+                            activeFile === file 
+                              ? 'glass-card text-foreground font-medium shadow-sm' 
+                              : 'hover:bg-indigo-500/10 text-foreground/60'
+                          }`}
+                          onClick={() => setActiveFile(file)}
+                        >
+                          <div className="flex items-center gap-2 overflow-hidden px-1">
+                            <FileText className="w-4 h-4 flex-shrink-0" />
+                            <span className="truncate">{file}</span>
+                          </div>
+                          <button
+                            className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center text-muted-foreground/60 hover:text-destructive rounded-md hover:bg-destructive/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              confirmDeleteFile(file);
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )) : (
+                        <div className="p-8 flex flex-col items-center justify-center text-center space-y-3">
+                          <FileText className="w-8 h-8 text-indigo-200/50" />
+                          <div className="text-xs text-muted-foreground/40 italic">
+                            No scripts in this folder.
+                          </div>
+                          <Button variant="outline" size="sm" className="text-[10px]" onClick={() => setIsNewScriptOpen(true)}>
+                            Create First Script
+                          </Button>
+                        </div>
+                      )
                     )}
                   </div>
+
+                  {activePath && (
+                    <div className="p-3 border-t border-border/50 bg-muted/5">
+                      <Button 
+                        variant="ghost" 
+                        className="w-full justify-start gap-2 h-9 text-xs text-muted-foreground hover:text-indigo-600 hover:bg-indigo-500/5 group transition-all"
+                        onClick={() => setIsWorkspacePickerOpen(true)}
+                      >
+                        <Folder className="w-4 h-4 text-muted-foreground/50 group-hover:text-indigo-600 transition-colors" />
+                        Switch Folder
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}

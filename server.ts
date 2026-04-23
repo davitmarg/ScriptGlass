@@ -159,12 +159,19 @@ async function startServer() {
       const { token, commitMessage } = req.body;
       if (!token) return res.status(400).json({ error: "GitHub token is required" });
       const absPath = decodePath(req.params.path);
+      
+      console.log(`Git Sync: target path is "${absPath}"`);
+      if (!absPath || absPath === "undefined" || absPath === "null") {
+        return res.status(400).json({ error: "Invalid workspace path" });
+      }
+
       const git = new GitManager(absPath);
       await git.initRepo();
       await git.commit(commitMessage || `Sync ${new Date().toISOString()}`, token);
       const result = await git.push(token, path.basename(absPath));
       res.json(result);
     } catch (error: any) {
+      console.error("Git Sync Error:", error);
       res.status(500).json({ error: String(error) });
     }
   });
@@ -174,11 +181,18 @@ async function startServer() {
       const { token } = req.body;
       if (!token) return res.status(400).json({ error: "GitHub token is required" });
       const absPath = decodePath(req.params.path);
+
+      console.log(`Git Pull: target path is "${absPath}"`);
+      if (!absPath || absPath === "undefined" || absPath === "null") {
+        return res.status(400).json({ error: "Invalid workspace path" });
+      }
+
       const git = new GitManager(absPath);
       const repoName = path.basename(absPath.replace(/[/\\]$/, ""));
       const result = await git.pull(token, repoName);
       res.json(result);
     } catch (error: any) {
+      console.error("Git Pull Error:", error);
       res.status(500).json({ error: String(error) });
     }
   });

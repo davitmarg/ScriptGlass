@@ -181,18 +181,40 @@ export class GitManager {
   async push(token: string, repoName: string) {
     let fullRepoPath = repoName;
     
+    // Safety check: Don't allow "undefined" as a repo name
+    if (!repoName || repoName === "undefined") {
+      // Try to determine from existing remotes if possible
+      try {
+        const remotes = await this.git.getRemotes(true);
+        const origin = remotes.find(r => r.name === 'origin');
+        if (origin && origin.refs.push) {
+          const match = origin.refs.push.match(/github\.com[/:](.+\/.+)\.git/);
+          if (match) {
+            fullRepoPath = match[1];
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!fullRepoPath || fullRepoPath === "undefined") {
+        throw new Error("Could not determine GitHub repository name. Please check your workspace path or manually re-sync.");
+    }
+
     // If repoName is just 'metro' instead of 'user/metro', try to prefix with username
-    if (!repoName.includes('/')) {
+    if (!fullRepoPath.includes('/')) {
       const username = await this.getGitHubUsername(token);
       if (username) {
-        fullRepoPath = `${username}/${repoName}`;
+        fullRepoPath = `${username}/${fullRepoPath}`;
       }
     }
 
     const remote = `https://x-access-token:${token}@github.com/${fullRepoPath}.git`;
     try {
       await this.git.addRemote("origin", remote);
-    } catch (e) {}
+    } catch (e) {
+      // remote already exists, update it just in case token changed
+      await this.git.remote(['set-url', 'origin', remote]);
+    }
 
     // Try to determine current branch
     const status = await this.git.status();
@@ -239,10 +261,29 @@ export class GitManager {
 
   async pull(token: string, repoName: string) {
     let fullRepoPath = repoName;
-    if (!repoName.includes('/')) {
+
+    // Safety check: Don't allow "undefined" as a repo name
+    if (!repoName || repoName === "undefined") {
+      try {
+        const remotes = await this.git.getRemotes(true);
+        const origin = remotes.find(r => r.name === 'origin');
+        if (origin && origin.refs.fetch) {
+          const match = origin.refs.fetch.match(/github\.com[/:](.+\/.+)\.git/);
+          if (match) {
+            fullRepoPath = match[1];
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!fullRepoPath || fullRepoPath === "undefined") {
+      throw new Error("Could not determine GitHub repository name. Please check your workspace path or manually re-sync.");
+    }
+
+    if (!fullRepoPath.includes('/')) {
       const username = await this.getGitHubUsername(token);
       if (username) {
-        fullRepoPath = `${username}/${repoName}`;
+        fullRepoPath = `${username}/${fullRepoPath}`;
       }
     }
     
