@@ -3,8 +3,11 @@ name: Build ScriptGlass EXE
 on:
   push:
     branches:
-      - main  # Runs every time you push to the main branch
-  workflow_dispatch: # Allows you to run it manually from the GitHub UI
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -29,9 +32,14 @@ jobs:
           GITHUB_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
           GITHUB_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
 
-      - name: Upload EXE Artifact
-        uses: actions/upload-artifact@v4
+      - name: Create or Update Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ScriptGlass-Windows-Portable
-          path: dist_electron/*.exe  # This grabs your portable .exe
-          retention-days: 90  # How long the download link lasts
+          tag_name: latest
+          name: "Latest Production Build"
+          body: "This release is automatically updated on every push to the main branch."
+          draft: false
+          prerelease: false
+          files: dist_electron/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

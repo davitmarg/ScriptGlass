@@ -67,7 +67,8 @@
       "!node_modules"
     ],
     "win": {
-      "target": "portable"
+      "target": "nsis",
+      "artifactName": "ScriptGlass-Setup.exe"
     },
     "asar": true
   }

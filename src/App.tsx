@@ -33,7 +33,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import { useMemo, useCallback } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -771,7 +772,7 @@ export default function App() {
         type = 'action';
       }
 
-      result.push({ id: Math.random().toString(36).substr(2, 9), type, content });
+      result.push({ id: `block-${result.length}`, type, content });
     });
 
     return result;
@@ -1004,6 +1005,7 @@ export default function App() {
     let node = sel.anchorNode;
     if (!node) return;
     
+    const offset = sel.anchorOffset;
     if (node.nodeType === 3) node = node.parentElement;
     
     let current = node;
@@ -1013,7 +1015,25 @@ export default function App() {
         const type = (current as HTMLElement).getAttribute('data-type') as BlockType;
         const text = (current as HTMLElement).textContent || '';
 
-        if (id) setActiveBlockId(id);
+        if (id) {
+          setActiveBlockId(id);
+          // Save persistence info
+          if (activeFile && activePath) {
+            const container = document.getElementById('editor-container');
+            const lines = Array.from(editorRef.current?.children || []);
+            const index = lines.indexOf(current as HTMLElement);
+
+            const persistenceData = {
+              blockId: id,
+              blockIndex: index,
+              offset: offset,
+              scrollTop: container?.scrollTop || 0,
+              timestamp: Date.now()
+            };
+            const fileKey = `${activePath}/${activeFile}`;
+            localStorage.setItem(`sg_cursor_${fileKey}`, JSON.stringify(persistenceData));
+          }
+        }
         if (type) setActiveType(type || 'general');
         setActiveLineRect((current as HTMLElement).getBoundingClientRect());
 
@@ -1248,23 +1268,79 @@ export default function App() {
         syncEditorFromBlocks(loadedBlocks);
         currentEditorFile.current = filename;
         
-        // Auto-focus last line and scroll to bottom
-        setTimeout(() => {
-          const el = editorRef.current?.lastElementChild as HTMLElement;
-          if (el) {
-            el.focus();
-            const range = document.createRange();
-            const sel = window.getSelection();
-            if (sel) {
-              range.selectNodeContents(el);
-              range.collapse(false);
-              sel.removeAllRanges();
-              sel.addRange(range);
-            }
-            // Ensure smooth scroll to the newly focused last line
-            el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        // Restore cursor position if exists
+        const fileKey = `${absPath}/${filename}`;
+        const saved = localStorage.getItem(`sg_cursor_${fileKey}`);
+        let restored = false;
+        
+        if (saved) {
+          restored = true;
+          try {
+            const { blockId, blockIndex, offset, scrollTop } = JSON.parse(saved);
+            
+            setTimeout(() => {
+              let el = document.getElementById(blockId);
+              if (!el && blockIndex !== undefined && editorRef.current) {
+                el = editorRef.current.children[blockIndex] as HTMLElement;
+              }
+
+              if (el) {
+                el.focus();
+                const range = document.createRange();
+                const sel = window.getSelection();
+                if (sel) {
+                  const textNode = el.firstChild || el;
+                  const finalOffset = Math.min(offset || 0, el.textContent?.length || 0);
+                  try {
+                    if (textNode.nodeType === 3) {
+                      range.setStart(textNode, finalOffset);
+                    } else {
+                      range.selectNodeContents(el);
+                    }
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                  } catch (e) {}
+                }
+                
+                const container = document.getElementById('editor-container');
+                if (container && scrollTop !== undefined) {
+                  container.scrollTop = scrollTop;
+                }
+              } else {
+                // Element not found fallback
+                const lastEl = editorRef.current?.lastElementChild as HTMLElement;
+                if (lastEl) {
+                  lastEl.focus();
+                  lastEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                }
+              }
+            }, 60);
+          } catch (e) {
+            console.error('Failed to restore cursor position', e);
+            restored = false;
           }
-        }, 100);
+        }
+
+        if (!restored) {
+          // Auto-focus last line and scroll to bottom ONLY if no saved position
+          setTimeout(() => {
+            const el = editorRef.current?.lastElementChild as HTMLElement;
+            if (el) {
+              el.focus();
+              const range = document.createRange();
+              const sel = window.getSelection();
+              if (sel) {
+                range.selectNodeContents(el);
+                range.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }
+              // Ensure smooth scroll to the newly focused last line
+              el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }
+          }, 100);
+        }
       }
 
       setIsInitialLoading(false);
@@ -1544,6 +1620,9 @@ Snippet:
       setTimeout(() => {
         fetchFiles(activePath);
         fetchGitStatus(activePath);
+        if (activeFile) {
+          fetchFileContent(activePath, activeFile);
+        }
       }, 500);
     } catch (error: any) {
       toast.error(`Failed to pull: ${error.message}`);
@@ -1615,9 +1694,23 @@ Snippet:
             {activeFile && (
               <>
                 <span className="opacity-40 shrink-0">/</span>
-                <span className="text-foreground font-bold flex items-center gap-1 truncate font-mono">
+                <span className="text-foreground font-bold flex items-center gap-2 truncate font-mono">
                   {activeFile}
                   {hasUnsavedChanges && <span className="text-indigo-600 dark:text-indigo-400 drop-shadow-sm shrink-0">*</span>}
+                  <Tooltip>
+                    <TooltipTrigger 
+                      render={
+                        <button 
+                          onClick={() => activePath && activeFile && fetchFileContent(activePath, activeFile)}
+                          disabled={isInitialLoading}
+                          className="ml-1 p-1 rounded-md hover:bg-secondary/80 text-muted-foreground/40 hover:text-indigo-600 transition-all transition-colors"
+                        />
+                      }
+                    >
+                      <RefreshCw className={cn("w-3 h-3", isInitialLoading && "animate-spin")} />
+                    </TooltipTrigger>
+                    <TooltipContent>Reload script from disk</TooltipContent>
+                  </Tooltip>
                 </span>
               </>
             )}
@@ -1859,22 +1952,19 @@ Snippet:
                 </div>
                 <DialogFooter className="gap-2 items-center">
                   <div className="mr-auto">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button 
-                            variant="ghost" 
-                            size="icon"
-                            onClick={() => activePath && fetchFiles(activePath)}
-                            disabled={isFilesLoading || !activePath}
-                            className="h-8 w-8 text-muted-foreground/50 hover:text-indigo-600"
-                          >
-                            <RefreshCw className={`w-4 h-4 ${isFilesLoading ? 'animate-spin' : ''}`} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Refresh scripts list</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger 
+                        onClick={() => activePath && fetchFiles(activePath)}
+                        disabled={isFilesLoading || !activePath}
+                        className={cn(
+                          buttonVariants({ variant: "ghost", size: "icon" }),
+                          "h-8 w-8 text-muted-foreground/50 hover:text-indigo-600 focus-visible:ring-0"
+                        )}
+                      >
+                        <RefreshCw className={`w-4 h-4 ${isFilesLoading ? 'animate-spin' : ''}`} />
+                      </TooltipTrigger>
+                      <TooltipContent>Refresh scripts list</TooltipContent>
+                    </Tooltip>
                   </div>
                   <Button 
                     variant="outline" 
@@ -1944,22 +2034,20 @@ Snippet:
                         <>
                           <Tooltip>
                             <TooltipTrigger 
-                              asChild
+                              onClick={() => {
+                                if (activePath) {
+                                  fetchFiles(activePath);
+                                  fetchGitStatus(activePath);
+                                }
+                              }} 
+                              disabled={isFilesLoading}
+                              className={cn(
+                                buttonVariants({ variant: "ghost", size: "icon" }),
+                                "h-7 w-7 rounded-lg transition-all focus-visible:ring-0",
+                                isFilesLoading ? 'text-indigo-600 bg-indigo-500/10' : 'text-muted-foreground/40 hover:text-indigo-600 hover:bg-indigo-500/5'
+                              )}
                             >
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  if (activePath) {
-                                    fetchFiles(activePath);
-                                    fetchGitStatus(activePath);
-                                  }
-                                }} 
-                                className={`h-7 w-7 rounded-lg transition-all ${isFilesLoading ? 'text-indigo-600 bg-indigo-500/10' : 'text-muted-foreground/40 hover:text-indigo-600 hover:bg-indigo-500/5'}`}
-                                disabled={isFilesLoading}
-                              >
-                                <RefreshCw className={`w-3.5 h-3.5 ${isFilesLoading ? 'animate-spin' : ''}`} />
-                              </Button>
+                              <RefreshCw className={`w-3.5 h-3.5 ${isFilesLoading ? 'animate-spin' : ''}`} />
                             </TooltipTrigger>
                             <TooltipContent>Refresh Scripts</TooltipContent>
                           </Tooltip>
@@ -2077,6 +2165,26 @@ Snippet:
           <main 
             id="editor-container"
             className="w-full h-full overflow-y-auto py-[15vh] px-10 bg-transparent scrollbar-hide cursor-text"
+            onScroll={(e) => {
+              if (activeFile && activePath) {
+                const scrollTop = (e.currentTarget as HTMLElement).scrollTop;
+                const fileKey = `${activePath}/${activeFile}`;
+                const saved = localStorage.getItem(`sg_cursor_${fileKey}`);
+                if (saved) {
+                  try {
+                    const data = JSON.parse(saved);
+                    data.scrollTop = scrollTop;
+                    data.timestamp = Date.now();
+                    localStorage.setItem(`sg_cursor_${fileKey}`, JSON.stringify(data));
+                  } catch (e) {}
+                } else {
+                  localStorage.setItem(`sg_cursor_${fileKey}`, JSON.stringify({
+                    scrollTop,
+                    timestamp: Date.now()
+                  }));
+                }
+              }
+            }}
             onClick={(e) => {
               if (e.target === e.currentTarget && editorRef.current) {
                 const lastLine = editorRef.current.lastElementChild as HTMLElement;
