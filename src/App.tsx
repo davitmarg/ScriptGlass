@@ -1697,20 +1697,6 @@ Snippet:
                 <span className="text-foreground font-bold flex items-center gap-2 truncate font-mono">
                   {activeFile}
                   {hasUnsavedChanges && <span className="text-indigo-600 dark:text-indigo-400 drop-shadow-sm shrink-0">*</span>}
-                  <Tooltip>
-                    <TooltipTrigger 
-                      render={
-                        <button 
-                          onClick={() => activePath && activeFile && fetchFileContent(activePath, activeFile)}
-                          disabled={isInitialLoading}
-                          className="ml-1 p-1 rounded-md hover:bg-secondary/80 text-muted-foreground/40 hover:text-indigo-600 transition-all transition-colors"
-                        />
-                      }
-                    >
-                      <RefreshCw className={cn("w-3 h-3", isInitialLoading && "animate-spin")} />
-                    </TooltipTrigger>
-                    <TooltipContent>Reload script from disk</TooltipContent>
-                  </Tooltip>
                 </span>
               </>
             )}
