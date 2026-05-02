@@ -82,6 +82,7 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(false);
+  const [isFilesLoading, setIsFilesLoading] = useState(false);
   const [isEditorReady, setIsEditorReady] = useState(false);
   const [projectKey, setProjectKey] = useState(0);
   const [titlePage, setTitlePage] = useState({
@@ -1200,7 +1201,8 @@ export default function App() {
     }
   }, [jumpPageInput, pageCount, currentPage, blocks]);
 
-  const fetchFiles = async (absPath: string) => {
+   const fetchFiles = async (absPath: string) => {
+    setIsFilesLoading(true);
     try {
       const data = await apiCall(`/api/workspace/${encodePath(absPath)}/files`);
       const filesList = Array.isArray(data) ? data : [];
@@ -1223,6 +1225,8 @@ export default function App() {
       }
     } catch (error) {
       toast.error('Failed to fetch files');
+    } finally {
+      setIsFilesLoading(false);
     }
   };
 
@@ -1536,8 +1540,11 @@ Snippet:
         toast.success('Successfully retrieved latest from GitHub');
       }
       
-      fetchFiles(activePath);
-      fetchGitStatus(activePath);
+      // Small delay to ensure FS is updated
+      setTimeout(() => {
+        fetchFiles(activePath);
+        fetchGitStatus(activePath);
+      }, 500);
     } catch (error: any) {
       toast.error(`Failed to pull: ${error.message}`);
       console.error(error);
@@ -1850,7 +1857,25 @@ Snippet:
                     </div>
                   )}
                 </div>
-                <DialogFooter className="gap-2">
+                <DialogFooter className="gap-2 items-center">
+                  <div className="mr-auto">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            onClick={() => activePath && fetchFiles(activePath)}
+                            disabled={isFilesLoading || !activePath}
+                            className="h-8 w-8 text-muted-foreground/50 hover:text-indigo-600"
+                          >
+                            <RefreshCw className={`w-4 h-4 ${isFilesLoading ? 'animate-spin' : ''}`} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Refresh scripts list</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
                   <Button 
                     variant="outline" 
                     onClick={handlePull} 
@@ -1919,17 +1944,24 @@ Snippet:
                         <>
                           <Tooltip>
                             <TooltipTrigger 
-                              onClick={() => {
-                                if (activePath) {
-                                  fetchFiles(activePath);
-                                  fetchGitStatus(activePath);
-                                }
-                              }} 
-                              className="hover:text-indigo-600 p-1"
+                              asChild
                             >
-                              <RefreshCw className="w-3.5 h-3.5" />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  if (activePath) {
+                                    fetchFiles(activePath);
+                                    fetchGitStatus(activePath);
+                                  }
+                                }} 
+                                className={`h-7 w-7 rounded-lg transition-all ${isFilesLoading ? 'text-indigo-600 bg-indigo-500/10' : 'text-muted-foreground/40 hover:text-indigo-600 hover:bg-indigo-500/5'}`}
+                                disabled={isFilesLoading}
+                              >
+                                <RefreshCw className={`w-3.5 h-3.5 ${isFilesLoading ? 'animate-spin' : ''}`} />
+                              </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Refresh Workspace</TooltipContent>
+                            <TooltipContent>Refresh Scripts</TooltipContent>
                           </Tooltip>
                           <Tooltip>
                             <TooltipTrigger 
@@ -2004,9 +2036,21 @@ Snippet:
                           <div className="text-xs text-muted-foreground/40 italic">
                             No scripts in this folder.
                           </div>
-                          <Button variant="outline" size="sm" className="text-[10px]" onClick={() => setIsNewScriptOpen(true)}>
-                            Create First Script
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button variant="outline" size="sm" className="text-[10px]" onClick={() => setIsNewScriptOpen(true)}>
+                              Create First Script
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-[10px] gap-1" 
+                              onClick={() => activePath && fetchFiles(activePath)}
+                              disabled={isFilesLoading}
+                            >
+                              <RefreshCw className={`w-3 h-3 ${isFilesLoading ? 'animate-spin' : ''}`} />
+                              Reload
+                            </Button>
+                          </div>
                         </div>
                       )
                     )}
