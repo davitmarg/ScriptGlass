@@ -137,6 +137,7 @@
 
 .script-line {
   @apply min-h-[1.5em];
+  white-space: pre-wrap;
 }
 
 /* Screenplay Formatting Classes - defined AFTER base for priority */

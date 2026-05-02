@@ -576,7 +576,8 @@ export default function App() {
     const seenIds = new Set<string>();
 
     lines.forEach((line, i) => {
-      const text = line.textContent || '';
+      // Strip trailing phantom newline from innerText
+      const text = (line as HTMLElement).innerText.replace(/\n$/, '') || '';
       let type: BlockType = 'action';
 
       // Fountain-style auto-detection
@@ -588,14 +589,18 @@ export default function App() {
         type = 'shot';
       } else if (text.startsWith('(') && text.endsWith(')')) {
         type = 'parenthetical';
-      } else if (text === text.toUpperCase() && text.trim().length > 0 && !/^\d+$/.test(text)) {
-        // Heuristic: Uppercase line is likely a character if followed by dialogue
-        // or if it's just a standalone character name
+      } else if (text === text.toUpperCase() && text.trim().length > 0 && !/^\d+$/.test(text) && !/^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(text)) {
+        // Heuristic: Uppercase line is likely a character
         type = 'character';
       } else if (i > 0) {
-        const prevType = newBlocks[i-1].type;
-        if (prevType === 'character' || prevType === 'parenthetical') {
-          type = 'dialogue';
+        // Look back for character or dialogue continuation, skipping empty lines
+        let j = i - 1;
+        while (j >= 0 && newBlocks[j].content.trim() === '') j--;
+        if (j >= 0) {
+          const prev = newBlocks[j];
+          if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && text.trim().length > 0) {
+            type = 'dialogue';
+          }
         }
       }
 
@@ -688,9 +693,10 @@ export default function App() {
 
   const syncEditorFromBlocks = (newBlocks: ScriptBlock[]) => {
     if (editorRef.current) {
-      editorRef.current.innerHTML = newBlocks.map(b => 
-        `<div id="${b.id}" class="script-line script-${b.type} ${b.type === 'character' ? 'font-bold' : ''}" data-type="${b.type}">${b.content}</div>`
-      ).join('');
+      editorRef.current.innerHTML = newBlocks.map(b => {
+        const content = b.content === '' ? '<br>' : b.content;
+        return `<div id="${b.id}" class="script-line script-${b.type} ${b.type === 'character' ? 'font-bold' : ''}" data-type="${b.type}">${content}</div>`;
+      }).join('');
     }
   };
 
@@ -736,8 +742,15 @@ export default function App() {
       return [{ id: Math.random().toString(36).substr(2, 9), type: 'action', content: '' }];
     }
     
-    // Normalize newlines and split by single newline to preserve ALL vertical space
+    // Normalize newlines and split by single newline
     const lines = fountain.replace(/\r\n/g, '\n').split('\n');
+    
+    // If the file ends with a newline, split() creates an extra empty line at the end.
+    // We remove it to avoid "growing" empty lines on each save/reload.
+    if (lines.length > 0 && lines[lines.length - 1] === '' && fountain.endsWith('\n')) {
+      lines.pop();
+    }
+    
     const result: ScriptBlock[] = [];
 
     lines.forEach((line, i) => {
@@ -761,9 +774,14 @@ export default function App() {
         // Heuristic: Uppercase line is likely a character
         type = 'character';
       } else if (result.length > 0) {
-        const prevType = result[result.length - 1].type;
-        if ((prevType === 'character' || prevType === 'parenthetical') && content.length > 0) {
-          type = 'dialogue';
+        // Look back for character or dialogue continuation, skipping ONLY empty lines
+        let j = result.length - 1;
+        while (j >= 0 && result[j].content.trim() === '') j--;
+        if (j >= 0) {
+          const prev = result[j];
+          if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && content.length > 0) {
+            type = 'dialogue';
+          }
         }
       }
 
@@ -2688,11 +2706,11 @@ Snippet:
                 ) : (
                   <>
                     {gitStatus?.branch || 'main'}
-                    {(hasUnsavedChanges || (gitStatus && (
+                    {(gitStatus && (
                       (gitStatus.status?.files?.length ?? 0) > 0 || 
                       (gitStatus.status?.ahead ?? 0) > 0
-                    ))) ? (
-                      <span className="ml-0.5 text-indigo-600 dark:text-indigo-400 font-bold" title="Unsaved or uncommitted changes">*</span>
+                    )) ? (
+                      <span className="ml-0.5 text-indigo-600 dark:text-indigo-400 font-bold" title="Uncommitted or unpushed changes">*</span>
                     ) : null}
                   </>
                 )}
