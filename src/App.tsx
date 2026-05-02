@@ -187,6 +187,7 @@ export default function App() {
   const [activeLineRect, setActiveLineRect] = useState<DOMRect | null>(null);
 
   const editorRef = useRef<HTMLDivElement>(null);
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -560,66 +561,200 @@ export default function App() {
     }
   };
 
-  const updateFormatting = () => {
-    if (!editorRef.current) return;
+  const updateFormatting = (forceSyncState = false) => {
+    if (!editorRef.current) return [];
     
-    // Ensure all text is wrapped in divs
-    if (editorRef.current.childNodes.length > 0 && editorRef.current.firstChild?.nodeType === Node.TEXT_NODE) {
-      const text = editorRef.current.firstChild.textContent;
-      const div = document.createElement('div');
-      div.textContent = text;
-      editorRef.current.replaceChild(div, editorRef.current.firstChild);
+    const editor = editorRef.current;
+    let needsDirectSync = false;
+
+    // Phase 1: Wrap any "orphaned" nodes (text nodes, loose BR tags, or non-script-line elements)
+    // This ensures every piece of content is contained within a properly tagged div.
+    const nodes = Array.from(editor.childNodes) as Node[];
+    nodes.forEach(node => {
+      const isScriptLine = node instanceof HTMLElement && node.classList.contains('script-line');
+      
+      if (!isScriptLine) {
+        // Skip purely whitespace nodes that aren't content
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent || '';
+          if (text.trim() === '' && text !== '') {
+            // These are likely just formatting newlines between divs
+          }
+        }
+
+        const div = document.createElement('div');
+        div.id = 'block-' + Math.random().toString(36).substring(2, 11);
+        div.className = 'script-line script-action';
+        
+        if (node.nodeType === Node.TEXT_NODE) {
+          div.textContent = node.textContent;
+          editor.replaceChild(div, node);
+          needsDirectSync = true;
+        } else if (node instanceof HTMLElement) {
+          const htmlEl = node as HTMLElement;
+          if (htmlEl.tagName === 'BR') {
+            div.innerHTML = '<br>';
+          } else {
+            div.innerHTML = htmlEl.innerHTML || htmlEl.textContent || '<br>';
+          }
+          editor.replaceChild(div, node);
+          needsDirectSync = true;
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          // Fallback for other element types
+          const el = node as HTMLElement;
+          div.innerHTML = el.innerHTML || el.textContent || '<br>';
+          editor.replaceChild(div, node);
+          needsDirectSync = true;
+        }
+      }
+    });
+
+    if (needsDirectSync) {
+      // If we did wrapping, the DOM changed and we should update references before proceeding
     }
 
-    const lines = Array.from(editorRef.current.children) as HTMLElement[];
+    // Phase 2: Extract blocks from the now-normalized DOM
+    const editorLines = Array.from(editor.children) as HTMLElement[];
     const newBlocks: ScriptBlock[] = [];
     const seenIds = new Set<string>();
 
-    lines.forEach((line, i) => {
-      // Strip trailing phantom newline from innerText
-      const text = (line as HTMLElement).innerText.replace(/\n$/, '') || '';
-      let type: BlockType = 'action';
+    editorLines.forEach((lineEl) => {
+      // Normalize line element structure
+      if (!lineEl.id) lineEl.id = 'block-' + Math.random().toString(36).substring(2, 11);
+      
+      let rawText = lineEl.innerText;
+      // innerText often appends a newline in contenteditable
+      if (rawText.endsWith('\n')) rawText = rawText.slice(0, -1);
+      
+      const subLines = rawText.split('\n');
+      
+      subLines.forEach((text, subIdx) => {
+        let type: BlockType = 'action';
+        let content = text.trim();
 
-      // Fountain-style auto-detection
-      if (text.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(text)) {
-        type = 'scene';
-      } else if (text.startsWith('>') && !text.endsWith('<')) {
-        type = 'transition';
-      } else if (text.startsWith('!')) {
-        type = 'shot';
-      } else if (text.startsWith('(') && text.endsWith(')')) {
-        type = 'parenthetical';
-      } else if (text === text.toUpperCase() && text.trim().length > 0 && !/^\d+$/.test(text) && !/^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(text)) {
-        // Heuristic: Uppercase line is likely a character
-        type = 'character';
-      } else if (i > 0) {
-        // Look back for character or dialogue continuation, skipping empty lines
-        let j = i - 1;
-        while (j >= 0 && newBlocks[j].content.trim() === '') j--;
-        if (j >= 0) {
-          const prev = newBlocks[j];
-          if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && text.trim().length > 0) {
-            type = 'dialogue';
+        if (content.startsWith('!')) {
+          type = 'action';
+          content = content.substring(1).trim();
+        }
+        else if (content.startsWith('~')) {
+          type = 'dialogue';
+          content = content.substring(1).trim();
+        }
+        else if (content.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(content)) {
+          type = 'scene';
+        } 
+        else if (content.startsWith('>') || content.toUpperCase().endsWith(' TO:')) {
+          type = 'transition';
+        }
+        else if (content.startsWith('(') && content.endsWith(')')) {
+          type = 'parenthetical';
+        }
+        else if (content.startsWith('@')) {
+          type = 'character';
+        }
+        else if (content === content.toUpperCase() && content.length > 0 && !/^\d+$/.test(content)) {
+          type = 'character';
+        }
+        else if (content.length > 0) {
+          let j = newBlocks.length - 1;
+          if (j >= 0) {
+            const prev = newBlocks[j];
+            if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && prev.content.trim() !== '') {
+              type = 'dialogue';
+            }
           }
+        }
+
+        // Preserve manual override if set on the element
+        const manualType = lineEl.getAttribute('data-type') as BlockType;
+        if (manualType) type = manualType;
+
+        let id = subIdx === 0 ? lineEl.id : '';
+        if (!id || seenIds.has(id)) {
+          id = 'block-' + Math.random().toString(36).substring(2, 11);
+          if (subIdx === 0) lineEl.id = id;
+        }
+        seenIds.add(id);
+        
+        newBlocks.push({ id, type, content: text });
+      });
+    });
+
+    // Check if we need to split blocks (internal newlines found)
+    const hasSubLines = editorLines.some(line => {
+      const text = line.innerText;
+      return text.length > 0 && text.includes('\n', 0) && text.lastIndexOf('\n') < text.length - 1;
+    });
+    
+    if (hasSubLines) {
+      const selection = window.getSelection();
+      let offset = 0;
+      let focusNodeId = '';
+      
+      if (selection && selection.anchorNode) {
+        let currentNode: Node | null = selection.anchorNode;
+        while (currentNode && !(currentNode instanceof HTMLElement && currentNode.id)) {
+          currentNode = currentNode.parentNode;
+        }
+        if (currentNode instanceof HTMLElement && currentNode.id) {
+          focusNodeId = currentNode.id;
+          offset = selection.anchorOffset;
         }
       }
 
-      // Preserve manual overrides if they exist (we'll store type in data attribute)
-      const manualType = line.getAttribute('data-type') as BlockType;
-      if (manualType) type = manualType;
+      syncEditorFromBlocks(newBlocks);
 
-      let id = line.id;
-      if (!id || seenIds.has(id)) {
-        id = Math.random().toString(36).substr(2, 9);
+      if (focusNodeId) {
+        const el = document.getElementById(focusNodeId);
+        if (el) {
+          const range = document.createRange();
+          const sel = window.getSelection();
+          const node = el.firstChild || el;
+          try {
+            const finalOffset = Math.min(offset, node.textContent?.length || 0);
+            range.setStart(node, finalOffset);
+            range.collapse(true);
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+          } catch(e) {
+            setTimeout(() => {
+              const retryEl = document.getElementById(focusNodeId);
+              if (retryEl) {
+                const retryNode = retryEl.firstChild || retryEl;
+                try {
+                  const retryRange = document.createRange();
+                  const retrySel = window.getSelection();
+                  retryRange.setStart(retryNode, Math.min(offset, retryNode.textContent?.length || 0));
+                  retryRange.collapse(true);
+                  retrySel?.removeAllRanges();
+                  retrySel?.addRange(retryRange);
+                } catch(e2) {}
+              }
+            }, 0);
+          }
+        }
       }
-      seenIds.add(id);
-      line.id = id;
-      line.setAttribute('data-type', type);
-      line.className = `script-line script-${type} ${type === 'character' ? 'font-bold' : ''}`;
-      newBlocks.push({ id, type, content: text });
-    });
+    } else {
+      // Sync classes for existing elements
+      editorLines.forEach((lineEl, i) => {
+        const block = newBlocks.find(b => b.id === lineEl.id) || newBlocks[i];
+        if (block) {
+          const type = block.type;
+          const targetClass = `script-line script-${type} ${type === 'character' ? 'font-bold' : ''}`;
+          if (lineEl.className !== targetClass) {
+            lineEl.className = targetClass;
+          }
+          if (lineEl.getAttribute('data-type') !== type) {
+            lineEl.setAttribute('data-type', type);
+          }
+        }
+      });
+    }
 
-    setBlocks(newBlocks);
+    if (forceSyncState) {
+      setBlocks(newBlocks);
+      saveToHistory(newBlocks);
+    }
     return newBlocks;
   };
 
@@ -727,85 +862,152 @@ export default function App() {
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain');
-    
-    // Use insertText to maintain undo history and strip formatting
     document.execCommand('insertText', false, text);
-    
-    // Update state and history
-    const newBlocks = updateFormatting();
-    saveToHistory(newBlocks);
+    // Force sync state on paste to ensure and update correctly
+    updateFormatting(true);
     updateActiveTypeFromSelection();
   };
 
   const fountainToBlocks = (fountain: string): ScriptBlock[] => {
     if (!fountain || fountain.trim() === '') {
-      return [{ id: Math.random().toString(36).substr(2, 9), type: 'action', content: '' }];
+      return [{ id: 'block-' + Math.random().toString(36).substring(2, 9), type: 'action', content: '' }];
     }
     
-    // Normalize newlines and split by single newline
+    // Normalize newlines and split
     const lines = fountain.replace(/\r\n/g, '\n').split('\n');
     
-    // If the file ends with a newline, split() creates an extra empty line at the end.
-    // We remove it to avoid "growing" empty lines on each save/reload.
+    // Remove extra trailing newline if present to prevent growing vertical space
     if (lines.length > 0 && lines[lines.length - 1] === '' && fountain.endsWith('\n')) {
       lines.pop();
     }
     
     const result: ScriptBlock[] = [];
 
-    lines.forEach((line, i) => {
+    lines.forEach((line, index) => {
       let type: BlockType = 'action';
       let content = line.trim();
-      const rawContent = line; // Keep raw for now if needed, but trim is usually better for elements
 
-      // Basic element detection
-      if (content.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(content)) {
+      if (content === '') {
+        result.push({ id: `block-${result.length}`, type: 'action', content: '' });
+        return;
+      }
+
+      // Check for forced type prefixes
+      if (content.startsWith('!')) {
+        type = 'action';
+        // Strip the forced action prefix so it doesn't appear in the editor
+        line = line.replace(/^(\s*)!/, '$1');
+      } 
+      else if (content.startsWith('~')) {
+        type = 'dialogue';
+        // Strip the forced dialogue prefix
+        line = line.replace(/^(\s*)~/, '$1');
+      }
+      // 1. Scene Heading
+      else if (content.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(content)) {
         type = 'scene';
-        content = content.replace(/^\.\s*/, '');
-      } else if (content.startsWith('>') && !content.endsWith('<')) {
+      } 
+      // 2. Transition
+      else if (content.startsWith('>') || content.toUpperCase().endsWith(' TO:')) {
         type = 'transition';
-        content = content.replace(/^>\s*/, '');
-      } else if (content.startsWith('!')) {
-        type = 'shot';
-        content = content.replace(/^!\s*/, '');
-      } else if (content.startsWith('(') && content.endsWith(')')) {
+      }
+      // 3. Parenthetical
+      else if (content.startsWith('(') && content.endsWith(')')) {
         type = 'parenthetical';
-      } else if (content === content.toUpperCase() && content.length > 0 && !/^\d+$/.test(content) && !/^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(content)) {
-        // Heuristic: Uppercase line is likely a character
+      }
+      // 4. Character
+      else if (content.startsWith('@')) {
         type = 'character';
-      } else if (result.length > 0) {
-        // Look back for character or dialogue continuation, skipping ONLY empty lines
+      }
+      else if (content === content.toUpperCase() && !/^\d+$/.test(content)) {
+        type = 'character';
+      }
+      // 5. Dialogue
+      else {
+        // Look back for character, dialogue continuation
         let j = result.length - 1;
-        while (j >= 0 && result[j].content.trim() === '') j--;
         if (j >= 0) {
           const prev = result[j];
-          if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && content.length > 0) {
+          // Dialogue MUST stay dialogue if it follows character, parenthetical OR another dialogue
+          // BUT only if there was no empty line (our splitter keeps empty lines as blocks)
+          if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && prev.content.trim() !== '') {
             type = 'dialogue';
           }
         }
       }
 
-      // If it's an empty line, it's just an action line with no content (spacing)
-      if (content === '') {
-        type = 'action';
-      }
-
-      result.push({ id: `block-${result.length}`, type, content });
+      result.push({ id: `block-${result.length}`, type, content: line });
     });
 
     return result;
   };
 
   const blocksToFountain = (blocks: ScriptBlock[]): string => {
-    return blocks.map((block) => {
-      let prefix = '';
-      switch (block.type) {
-        case 'scene': prefix = '. '; break;
-        case 'transition': prefix = '> '; break;
-        case 'shot': prefix = '! '; break;
-        default: prefix = '';
+    return blocks.map((block, index) => {
+      const content = block.content;
+      const trimmed = content.trim();
+
+      if (trimmed === '') return content;
+      
+      // If it is forced type but wouldn't be detected as such, add prefix
+      if (block.type === 'character' && !trimmed.startsWith('@')) {
+        const isUppercase = trimmed === trimmed.toUpperCase() && !/^\d+$/.test(trimmed);
+        if (!isUppercase) return '@' + content;
       }
-      return prefix + block.content;
+      
+      if (block.type === 'scene' && !trimmed.startsWith('.') && !/^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(trimmed)) {
+        return '.' + content;
+      }
+      
+      if (block.type === 'transition' && !trimmed.startsWith('>') && !trimmed.toUpperCase().endsWith(' TO:')) {
+        return '>' + content;
+      }
+
+      if (block.type === 'dialogue') {
+        const isForcedDialogue = trimmed.startsWith('~');
+        if (isForcedDialogue) return content;
+
+        // Check if it would be misparsed as action
+        let followsCharacter = false;
+        if (index > 0) {
+          const prev = blocks[index-1];
+          if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && prev.content.trim() !== '') {
+            followsCharacter = true;
+          }
+        }
+
+        if (!followsCharacter) {
+          return '~' + content;
+        }
+      }
+
+      if (block.type === 'action') {
+        const isForcedAction = trimmed.startsWith('!');
+        if (isForcedAction) return content;
+
+        // Check if it would be misparsed as dialogue. 
+        // In Fountain, any indented line OR non-uppercase line following a character/parenthetical/dialogue 
+        // WITHOUT an empty line between is dialogue.
+        let wouldBeDialogue = false;
+        if (index > 0) {
+          const prev = blocks[index-1];
+          // If the previous block was character-related AND not empty
+          if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && prev.content.trim() !== '') {
+            wouldBeDialogue = true;
+          }
+        }
+
+        const wouldBeScene = trimmed.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(trimmed);
+        const wouldBeTransition = trimmed.startsWith('>') || trimmed.toUpperCase().endsWith(' TO:');
+        const wouldBeCharacter = trimmed.startsWith('@') || (trimmed === trimmed.toUpperCase() && trimmed.length > 0 && !/^\d+$/.test(trimmed));
+        const wouldBeParenthetical = trimmed.startsWith('(') && trimmed.endsWith(')');
+
+        if (wouldBeDialogue || wouldBeScene || wouldBeTransition || wouldBeCharacter || wouldBeParenthetical) {
+          return '!' + content;
+        }
+      }
+      
+      return content;
     }).join('\n');
   };
 
@@ -1005,7 +1207,7 @@ export default function App() {
       if (node) {
         (node as HTMLElement).textContent = value;
         setShowAutocomplete(false);
-        updateFormatting();
+        updateFormatting(true);
         // Move cursor to end
         const range = document.createRange();
         const textNode = (node as HTMLElement).firstChild || node;
@@ -1526,8 +1728,8 @@ Snippet:
     setIsSaving(true);
     try {
       // Re-parse current editor content to ensure we have the latest blocks
-      updateFormatting();
-      const fountainContent = blocksToFountain(blocks);
+      const latestBlocks = updateFormatting(true);
+      const fountainContent = blocksToFountain(latestBlocks);
       await apiCall(`/api/workspace/${encodePath(activePath)}/files/${activeFile}`, {
         method: 'POST',
         body: { content: fountainContent },
@@ -2256,14 +2458,21 @@ Snippet:
                   className="outline-none min-h-full w-full p-16 md:p-20"
                   onInput={() => {
                     const newBlocks = updateFormatting();
-                    saveToHistory(newBlocks);
                     setHasUnsavedChanges(true);
                     updateActiveTypeFromSelection();
+                    
+                    // Use a ref to debounce state updates that cause heavy re-renders
+                    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+                    syncTimerRef.current = setTimeout(() => {
+                      setBlocks(newBlocks);
+                      saveToHistory(newBlocks);
+                    }, 300);
                   }}
                   onPaste={handlePaste}
                   onKeyDown={(e) => {
-                    const isMac = navigator.platform.includes('Mac');
-                    const cmdOrAlt = isMac ? e.metaKey : e.altKey;
+                    const isMac = typeof window !== 'undefined' && /Mac|iPhone|iPod|iPad/.test(navigator.platform || navigator.userAgent);
+                    // Use both Alt and Cmd on Mac, just Alt on Windows/others, to be more robust for different user habits
+                    const cmdOrAlt = e.altKey || e.metaKey;
                     const isMod = e.metaKey || e.ctrlKey;
 
                     if (isMod && (e.key === 's' || e.code === 'KeyS')) {
@@ -2283,32 +2492,53 @@ Snippet:
                     const getCurrentLine = () => {
                       const sel = window.getSelection();
                       if (!sel || !sel.rangeCount) return null;
-                      let node = sel.anchorNode;
+                      let node: Node | null = sel.anchorNode;
+                      
+                      // If the anchorNode is the editor itself, we need to find the child at the offset
+                      if (node === editorRef.current) {
+                        const child = editorRef.current!.childNodes[sel.anchorOffset];
+                        node = child || editorRef.current!.lastChild;
+                      }
+
                       while (node && node.parentElement !== editorRef.current) {
                         node = node.parentElement;
+                        if (node === document.body) return null;
                       }
-                      return node as HTMLElement;
+                      
+                      // Ensure the result is actually an HTMLElement from our editor
+                      if (node instanceof HTMLElement && node.parentElement === editorRef.current) {
+                        return node;
+                      }
+                      return null;
                     };
 
                     const setLineType = (el: HTMLElement, type: BlockType) => {
                       el.setAttribute('data-type', type);
                       setActiveType(type);
-                      updateFormatting();
+                      updateFormatting(true);
+                      // Force a re-render/update of the active type indicator
+                      updateActiveTypeFromSelection();
                     };
 
-                    // Fade In Shortcuts
+                    // Shortcuts (Alt+1, etc. or Cmd+1 on Mac)
                     if (cmdOrAlt) {
-                      const line = getCurrentLine();
-                      if (line) {
-                        const key = e.key;
-                        if (key === '1') { e.preventDefault(); setLineType(line, 'scene'); }
-                        else if (key === '2') { e.preventDefault(); setLineType(line, 'action'); }
-                        else if (key === '3') { e.preventDefault(); setLineType(line, 'character'); }
-                        else if (key === '4') { e.preventDefault(); setLineType(line, 'parenthetical'); }
-                        else if (key === '5') { e.preventDefault(); setLineType(line, 'dialogue'); }
-                        else if (key === '6') { e.preventDefault(); setLineType(line, 'transition'); }
-                        else if (key === '7') { e.preventDefault(); setLineType(line, 'shot'); }
-                        else if (key === '0') { e.preventDefault(); setLineType(line, 'general'); }
+                      const key = e.key;
+                      // Support both main keys and numpad, and handle case where key might be a string like 'Digit1'
+                      const isDigit = /^[0-9]$/.test(key) || (e.code && e.code.startsWith('Digit'));
+                      const digitValue = isDigit ? (key.length === 1 ? key : e.code.replace('Digit', '')) : null;
+                      
+                      if (digitValue) {
+                        const line = getCurrentLine();
+                        if (line) {
+                          if (digitValue === '1') { e.preventDefault(); setLineType(line, 'scene'); }
+                          else if (digitValue === '2') { e.preventDefault(); setLineType(line, 'action'); }
+                          else if (digitValue === '3') { e.preventDefault(); setLineType(line, 'character'); }
+                          else if (digitValue === '4') { e.preventDefault(); setLineType(line, 'parenthetical'); }
+                          else if (digitValue === '5') { e.preventDefault(); setLineType(line, 'dialogue'); }
+                          else if (digitValue === '6') { e.preventDefault(); setLineType(line, 'transition'); }
+                          else if (digitValue === '7') { e.preventDefault(); setLineType(line, 'shot'); }
+                          else if (digitValue === '0') { e.preventDefault(); setLineType(line, 'general'); }
+                        }
                       }
                     }
 
@@ -2330,16 +2560,16 @@ Snippet:
                         let nextType: BlockType = 'action';
                         if (type === 'character') nextType = 'dialogue';
                         else if (type === 'parenthetical') nextType = 'dialogue';
+                        else if (type === 'dialogue') nextType = 'action';
                         else if (type === 'transition') nextType = 'scene';
                         
-                        // We let the browser create the new div, but we'll style it in the next tick
+                        // Let the browser handle creating the new node, then apply attributes
                         setTimeout(() => {
                           const newLine = getCurrentLine();
                           if (newLine && newLine !== line) {
-                            newLine.setAttribute('data-type', nextType);
-                            updateFormatting();
+                            setLineType(newLine, nextType);
                           }
-                        }, 0);
+                        }, 10);
                       }
                     }
 
