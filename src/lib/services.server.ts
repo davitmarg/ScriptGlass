@@ -297,19 +297,29 @@ export class GitManager {
     await this.git.fetch("origin");
     
     // Logic for branch discovery
-    const remotes = await this.git.branch(['-r']);
+    const remotesList = await this.git.branch(['-r']);
+    if (remotesList.all.length === 0) {
+      // If no remote branches found after fetch, we might be on a brand new repo
+      // or the remote is empty.
+      return { success: true, message: "No remote branches found. Repository might be empty or newly created." };
+    }
+
     let targetBranch = 'origin/main';
     let targetBranchShort = 'main';
     
-    if (!remotes.all.includes('origin/main')) {
-      if (remotes.all.includes('origin/master')) {
+    if (!remotesList.all.includes('origin/main')) {
+      if (remotesList.all.includes('origin/master')) {
         targetBranch = 'origin/master';
         targetBranchShort = 'master';
       } else {
-        const firstRemote = remotes.all.find(b => b.startsWith('origin/'));
+        const firstRemote = remotesList.all.find(b => b.startsWith('origin/'));
         if (firstRemote) {
           targetBranch = firstRemote;
           targetBranchShort = firstRemote.replace('origin/', '');
+        } else {
+          // Absolute fallback if something is weird with names
+          targetBranch = remotesList.all[0];
+          targetBranchShort = targetBranch.replace('origin/', '');
         }
       }
     }
@@ -329,42 +339,49 @@ export class GitManager {
         hasHead = false;
       }
 
-      if (hasHead) {
-        const mergeBase = await this.git.revparse(['--merge-base', 'HEAD', targetRemoteBranch]).catch(() => '');
+      if (hasHead && targetRemoteBranch) {
+        // Trim and validate mergeBase
+        let mergeBase = await this.git.revparse(['--merge-base', 'HEAD', targetRemoteBranch]).catch(() => '');
+        mergeBase = mergeBase.trim();
         
-        if (mergeBase) {
-          const diff = await this.git.diff(['--name-only', mergeBase, targetRemoteBranch]);
-          const remoteChanges = diff.split('\n').filter(f => f.trim());
+        if (mergeBase && mergeBase !== targetRemoteBranch) {
+          // Use a range string for diff to be more robust with simple-git
+          const diffResult = await this.git.diff(['--name-only', `${mergeBase}...${targetRemoteBranch}`]);
+          const remoteChanges = diffResult.split('\n').filter(f => f.trim());
           
-          const localStatus = await this.git.status();
-          const localChanges = [
-            ...localStatus.modified,
-            ...localStatus.not_added,
-            ...localStatus.created,
-            ...localStatus.deleted,
-            ...localStatus.renamed.map(r => r.to)
-          ];
-          const localChangesSet = new Set(localChanges);
+          if (remoteChanges.length > 0) {
+            const localStatus = await this.git.status();
+            const localChanges = [
+              ...localStatus.modified,
+              ...localStatus.not_added,
+              ...localStatus.created,
+              ...localStatus.deleted,
+              ...localStatus.renamed.map(r => r.to)
+            ];
+            const localChangesSet = new Set(localChanges);
 
-          const conflicts = remoteChanges.filter(f => localChangesSet.has(f));
+            const conflicts = remoteChanges.filter(f => localChangesSet.has(f));
 
-          if (conflicts.length > 0) {
-            const timestamp = new Date().toISOString().split('T')[0];
-            for (const file of conflicts) {
-              const filePath = path.join(this.absPath, file);
-              try {
-                await fs.access(filePath);
-                const ext = path.extname(file);
-                const base = path.basename(file, ext);
-                const backupName = `${base}_Backup_${timestamp}${ext}`;
-                await fs.rename(filePath, path.join(this.absPath, backupName));
-              } catch (e) {}
+            if (conflicts.length > 0) {
+              const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+              for (const file of conflicts) {
+                const filePath = path.join(this.absPath, file);
+                try {
+                  await fs.access(filePath);
+                  const ext = path.extname(file);
+                  const base = path.basename(file, ext);
+                  const backupName = `${base}_Backup_${timestamp}${ext}`;
+                  await fs.rename(filePath, path.join(this.absPath, backupName));
+                } catch (e) {
+                  console.warn(`Failed to backup conflicting file ${file}:`, e);
+                }
+              }
             }
           }
         }
       }
     } catch (e) {
-      console.error("Conflict detection failed:", e);
+      console.error("Conflict detection failed (non-fatal):", e);
     }
 
     if (localBranch !== targetBranchShort) {
