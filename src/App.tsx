@@ -640,7 +640,7 @@ export default function App() {
           type = 'dialogue';
           content = content.substring(1).trim();
         }
-        else if (content.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(content)) {
+        else if (content.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)[. ]/i.test(content)) {
           type = 'scene';
         } 
         else if (content.startsWith('>') || content.toUpperCase().endsWith(' TO:')) {
@@ -904,7 +904,7 @@ export default function App() {
         line = line.replace(/^(\s*)~/, '$1');
       }
       // 1. Scene Heading
-      else if (content.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(content)) {
+      else if (content.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)[. ]/i.test(content)) {
         type = 'scene';
       } 
       // 2. Transition
@@ -955,7 +955,7 @@ export default function App() {
         if (!isUppercase) return '@' + content;
       }
       
-      if (block.type === 'scene' && !trimmed.startsWith('.') && !/^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(trimmed)) {
+      if (block.type === 'scene' && !trimmed.startsWith('.') && !/^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)[. ]/i.test(trimmed)) {
         return '.' + content;
       }
       
@@ -997,7 +997,7 @@ export default function App() {
           }
         }
 
-        const wouldBeScene = trimmed.startsWith('.') || /^(INT\.|EXT\.|INT\/EXT\.|EST\.)/i.test(trimmed);
+        const wouldBeScene = trimmed.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)[. ]/i.test(trimmed);
         const wouldBeTransition = trimmed.startsWith('>') || trimmed.toUpperCase().endsWith(' TO:');
         const wouldBeCharacter = trimmed.startsWith('@') || (trimmed === trimmed.toUpperCase() && trimmed.length > 0 && !/^\d+$/.test(trimmed));
         const wouldBeParenthetical = trimmed.startsWith('(') && trimmed.endsWith(')');
@@ -1114,8 +1114,8 @@ export default function App() {
       const data = await apiCall('/api/settings');
       setSettings(prev => ({ 
         ...prev,
-        baseProjectsDir: data.baseProjectsDir || '', 
-        geminiKey: data.geminiKey || '' ,
+        baseProjectsDir: data.baseProjectsDir || prev.baseProjectsDir, 
+        geminiKey: data.geminiKey || prev.geminiKey,
         theme: (data.theme || prev.theme) as 'light' | 'dark' | 'system'
       }));
       if (data.githubToken) {
@@ -2928,20 +2928,19 @@ Snippet:
         {/* Status Bar */}
         <footer className="h-[28px] glass-panel border-t flex items-center justify-between px-4 text-[11px] text-foreground/60 shrink-0">
           <div className="flex items-center gap-5">
-            <div className="flex items-center gap-1.5 text-foreground font-medium">
-              <GitBranch className={`w-3.5 h-3.5 ${isGitHubConnected ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/40'}`} />
+            <div className="flex items-center gap-1.5 text-foreground font-medium" title={gitStatus?.isRepo ? (gitStatus.status?.files?.length > 0 ? "Uncommitted changes" : gitStatus.status?.ahead > 0 ? "Unpushed changes" : "Up to date") : "Not a git repository"}>
+              <GitBranch className={`w-3.5 h-3.5 ${isGitHubConnected ? (gitStatus?.isRepo ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/40') : 'text-muted-foreground/20'}`} />
               <span className="flex items-center">
                 {!isGitHubConnected ? (
                   <span className="text-muted-foreground/40 font-normal italic select-none">GitHub Disconnected</span>
+                ) : !gitStatus?.isRepo ? (
+                  <span className="text-muted-foreground/40 font-normal italic select-none">No Git Repo</span>
                 ) : (
                   <>
-                    {gitStatus?.branch || 'main'}
-                    {(gitStatus && (
-                      (gitStatus.status?.files?.length ?? 0) > 0 || 
-                      (gitStatus.status?.ahead ?? 0) > 0
-                    )) ? (
-                      <span className="ml-0.5 text-indigo-600 dark:text-indigo-400 font-bold" title="Uncommitted or unpushed changes">*</span>
-                    ) : null}
+                    <span className="max-w-[80px] truncate">{gitStatus.branch || 'main'}</span>
+                    {(gitStatus.status?.files?.length > 0 || (gitStatus.status?.ahead || 0) > 0) && (
+                      <span className="ml-1 w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
+                    )}
                   </>
                 )}
               </span>

@@ -135,11 +135,24 @@ async function startServer() {
     try {
       const absPath = decodePath(req.params.path);
       const git = new GitManager(absPath);
+      
+      // Check if it's a git repo first
+      let isRepo = false;
+      try {
+        await fs.access(path.join(absPath, ".git"));
+        isRepo = true;
+      } catch (e) {}
+
+      if (!isRepo) {
+        return res.json({ status: null, branch: null, isRepo: false });
+      }
+
       const status = await git.getStatus();
       const branch = await git.getBranch();
-      res.json({ status, branch });
+      res.json({ status, branch, isRepo: true });
     } catch (error) {
-      res.status(500).json({ error: String(error) });
+      console.error("Git status fetch error:", error);
+      res.json({ status: null, branch: null, isRepo: false, error: String(error) });
     }
   });
 

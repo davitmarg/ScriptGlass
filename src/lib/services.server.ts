@@ -21,7 +21,7 @@ export class SettingsManager {
     githubToken?: string; 
     geminiKey?: string;
     theme?: string;
-  } = { baseProjectsDir: DEFAULT_STORAGE_DIR, theme: 'system' };
+  } = { baseProjectsDir: DEFAULT_STORAGE_DIR };
 
   constructor(configPath: string) {
     this.configPath = configPath;
