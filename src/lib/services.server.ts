@@ -155,9 +155,15 @@ export class GitManager {
   async getStatus() { return await this.git.status(); }
   async checkRepo() {
     try {
-      return await this.git.checkIsRepo();
+      // Direct FS check is often more reliable on Windows than simple-git checkIsRepo
+      await fs.access(path.join(this.absPath, ".git"));
+      return true;
     } catch {
-      return false;
+      try {
+        return await this.git.checkIsRepo();
+      } catch {
+        return false;
+      }
     }
   }
   async getLog() { return await this.git.log(); }

@@ -631,7 +631,8 @@ export default function App() {
       subLines.forEach((text, subIdx) => {
         let type: BlockType = 'action';
         let content = text.trim();
-        const hasNaturalPrefix = content.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(content);
+        const forcedScene = content.startsWith('.');
+        const naturalScene = /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(content);
 
         if (content.startsWith('!')) {
           type = 'action';
@@ -641,8 +642,12 @@ export default function App() {
           type = 'dialogue';
           content = content.substring(1).trim();
         }
-        else if (hasNaturalPrefix) {
+        else if (forcedScene || naturalScene) {
           type = 'scene';
+          if (forcedScene) {
+            // Strip the dot for the editor view
+            content = content.substring(1).trim();
+          }
         } 
         else if (content.startsWith('>') || content.toUpperCase().endsWith(' TO:')) {
           type = 'transition';
@@ -676,7 +681,7 @@ export default function App() {
           // then the heuristic 'hasNaturalPrefix' will be false. 
           // If they want to KEEP it a scene heading without a dot/prefix, it's NOT valid Fountain.
           // So we should favor the heuristic for scenes if it doesn't match.
-          if (manualType === 'scene' && !hasNaturalPrefix) {
+          if (manualType === 'scene' && !(forcedScene || naturalScene)) {
             // Drop back to heuristic
           } else {
             type = manualType;
@@ -690,7 +695,7 @@ export default function App() {
         }
         seenIds.add(id);
         
-        newBlocks.push({ id, type, content: text });
+        newBlocks.push({ id, type, content });
       });
     });
 
@@ -920,6 +925,10 @@ export default function App() {
       // 1. Scene Heading
       else if (content.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(content)) {
         type = 'scene';
+        if (content.startsWith('.')) {
+          // Strip the forced scene dot for the blocks
+          content = content.substring(1).trim();
+        }
       } 
       // 2. Transition
       else if (content.startsWith('>') || content.toUpperCase().endsWith(' TO:')) {
@@ -950,7 +959,7 @@ export default function App() {
         }
       }
 
-      result.push({ id: `block-${result.length}`, type, content: line });
+      result.push({ id: `block-${result.length}`, type, content });
     });
 
     return result;
@@ -1131,12 +1140,10 @@ export default function App() {
         if (data.baseProjectsDir !== undefined) next.baseProjectsDir = data.baseProjectsDir;
         if (data.geminiKey !== undefined) next.geminiKey = data.geminiKey;
         
-        // Only accept the server theme if it's explicitly set to something OTHER than 'system',
-        // OR if the local theme is 'system' and we want to sync with the server preference.
-        if (data.theme && data.theme !== 'system') {
+        // If the server has a concrete choice (light or dark), it wins.
+        // If the server has 'system' or nothing, the local choice (prev.theme) wins.
+        if (data.theme === 'light' || data.theme === 'dark') {
           next.theme = data.theme;
-        } else if (data.theme === 'system' && prev.theme === 'system') {
-          next.theme = 'system';
         }
         
         return next;
