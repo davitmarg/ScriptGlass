@@ -153,6 +153,13 @@ export class GitManager {
   }
 
   async getStatus() { return await this.git.status(); }
+  async checkRepo() {
+    try {
+      return await this.git.checkIsRepo();
+    } catch {
+      return false;
+    }
+  }
   async getLog() { return await this.git.log(); }
   async getBranch() { 
     const summary = await this.git.branch(); 

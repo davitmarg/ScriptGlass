@@ -136,13 +136,7 @@ async function startServer() {
       const absPath = decodePath(req.params.path);
       const git = new GitManager(absPath);
       
-      // Check if it's a git repo first
-      let isRepo = false;
-      try {
-        await fs.access(path.join(absPath, ".git"));
-        isRepo = true;
-      } catch (e) {}
-
+      const isRepo = await git.checkRepo();
       if (!isRepo) {
         return res.json({ status: null, branch: null, isRepo: false });
       }

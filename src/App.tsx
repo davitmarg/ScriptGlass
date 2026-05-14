@@ -613,7 +613,7 @@ export default function App() {
       // If we did wrapping, the DOM changed and we should update references before proceeding
     }
 
-    // Phase 2: Extract blocks from the now-normalized DOM
+      // Phase 2: Extract blocks from the now-normalized DOM
     const editorLines = Array.from(editor.children) as HTMLElement[];
     const newBlocks: ScriptBlock[] = [];
     const seenIds = new Set<string>();
@@ -631,6 +631,7 @@ export default function App() {
       subLines.forEach((text, subIdx) => {
         let type: BlockType = 'action';
         let content = text.trim();
+        const hasNaturalPrefix = content.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(content);
 
         if (content.startsWith('!')) {
           type = 'action';
@@ -640,7 +641,7 @@ export default function App() {
           type = 'dialogue';
           content = content.substring(1).trim();
         }
-        else if (content.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)[. ]/i.test(content)) {
+        else if (hasNaturalPrefix) {
           type = 'scene';
         } 
         else if (content.startsWith('>') || content.toUpperCase().endsWith(' TO:')) {
@@ -665,9 +666,22 @@ export default function App() {
           }
         }
 
-        // Preserve manual override if set on the element
+        // Handle manual override
         const manualType = lineEl.getAttribute('data-type') as BlockType;
-        if (manualType) type = manualType;
+        if (manualType) {
+          // If the manual type is 'scene' but the user removed the dot/prefix,
+          // we should probably clear the override to allow it to become action,
+          // UNLESS the block was just focused and edited (tricky to detect).
+          // Better: If it was a forced scene (has dot) and they removed the dot,
+          // then the heuristic 'hasNaturalPrefix' will be false. 
+          // If they want to KEEP it a scene heading without a dot/prefix, it's NOT valid Fountain.
+          // So we should favor the heuristic for scenes if it doesn't match.
+          if (manualType === 'scene' && !hasNaturalPrefix) {
+            // Drop back to heuristic
+          } else {
+            type = manualType;
+          }
+        }
 
         let id = subIdx === 0 ? lineEl.id : '';
         if (!id || seenIds.has(id)) {
@@ -904,7 +918,7 @@ export default function App() {
         line = line.replace(/^(\s*)~/, '$1');
       }
       // 1. Scene Heading
-      else if (content.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)[. ]/i.test(content)) {
+      else if (content.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(content)) {
         type = 'scene';
       } 
       // 2. Transition
@@ -955,7 +969,7 @@ export default function App() {
         if (!isUppercase) return '@' + content;
       }
       
-      if (block.type === 'scene' && !trimmed.startsWith('.') && !/^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)[. ]/i.test(trimmed)) {
+      if (block.type === 'scene' && !trimmed.startsWith('.') && !/^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(trimmed)) {
         return '.' + content;
       }
       
@@ -997,7 +1011,7 @@ export default function App() {
           }
         }
 
-        const wouldBeScene = trimmed.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)[. ]/i.test(trimmed);
+        const wouldBeScene = trimmed.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(trimmed);
         const wouldBeTransition = trimmed.startsWith('>') || trimmed.toUpperCase().endsWith(' TO:');
         const wouldBeCharacter = trimmed.startsWith('@') || (trimmed === trimmed.toUpperCase() && trimmed.length > 0 && !/^\d+$/.test(trimmed));
         const wouldBeParenthetical = trimmed.startsWith('(') && trimmed.endsWith(')');
@@ -1112,12 +1126,21 @@ export default function App() {
   const fetchSettings = async () => {
     try {
       const data = await apiCall('/api/settings');
-      setSettings(prev => ({ 
-        ...prev,
-        baseProjectsDir: data.baseProjectsDir || prev.baseProjectsDir, 
-        geminiKey: data.geminiKey || prev.geminiKey,
-        theme: (data.theme || prev.theme) as 'light' | 'dark' | 'system'
-      }));
+      setSettings(prev => {
+        const next = { ...prev };
+        if (data.baseProjectsDir !== undefined) next.baseProjectsDir = data.baseProjectsDir;
+        if (data.geminiKey !== undefined) next.geminiKey = data.geminiKey;
+        
+        // Only accept the server theme if it's explicitly set to something OTHER than 'system',
+        // OR if the local theme is 'system' and we want to sync with the server preference.
+        if (data.theme && data.theme !== 'system') {
+          next.theme = data.theme;
+        } else if (data.theme === 'system' && prev.theme === 'system') {
+          next.theme = 'system';
+        }
+        
+        return next;
+      });
       if (data.githubToken) {
         setGithubToken(data.githubToken);
         setIsGitHubConnected(true);
