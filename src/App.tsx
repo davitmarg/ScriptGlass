@@ -34,17 +34,17 @@ import { parseFountain } from '@/src/lib/editor-engine';
 import { GitStatus, GitLogEntry, BlockType, ScriptBlock, TerminalOutput } from '@/src/types';
 import { apiCall, getPlatform, isDesktop } from '@/src/lib/platform';
 import { fountainToBlocks, blocksToFountain } from '@/src/lib/fountain';
-import { StatusBar } from '@/src/components/StatusBar';
-import { TitleBar } from '@/src/components/TitleBar';
-import { Sidebar } from '@/src/components/Sidebar';
-import { FileList } from '@/src/components/FileList';
-import { Terminal } from '@/src/components/Terminal';
-import { RightSidebar } from '@/src/components/RightSidebar';
-import { SettingsDialog } from '@/src/components/SettingsDialog';
-import { DeleteConfirmDialog } from '@/src/components/DeleteConfirmDialog';
-import { NewScriptDialog } from '@/src/components/NewScriptDialog';
-import { FolderBrowserDialog } from '@/src/components/FolderBrowserDialog';
-import { WorkspacePickerDialog } from '@/src/components/WorkspacePickerDialog';
+import { StatusBar } from '@/src/components/layout/StatusBar';
+import { TitleBar } from '@/src/components/layout/TitleBar';
+import { Sidebar } from '@/src/components/layout/Sidebar';
+import { FileList } from '@/src/components/editor/FileList';
+import { Terminal } from '@/src/components/editor/Terminal';
+import { RightSidebar } from '@/src/components/layout/RightSidebar';
+import { SettingsDialog } from '@/src/components/dialogs/SettingsDialog';
+import { DeleteConfirmDialog } from '@/src/components/dialogs/DeleteConfirmDialog';
+import { NewScriptDialog } from '@/src/components/dialogs/NewScriptDialog';
+import { FolderBrowserDialog } from '@/src/components/dialogs/FolderBrowserDialog';
+import { WorkspacePickerDialog } from '@/src/components/dialogs/WorkspacePickerDialog';
 
 
 
