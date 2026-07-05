@@ -4,30 +4,29 @@ import {
   Folder, 
   FolderPlus,
   Terminal as TerminalIcon, 
-  GitBranch, 
   CloudUpload, 
   Plus, 
   Trash2, 
   ChevronLeft, 
-  ChevronRight,
-  Save,
-  Clock,
-  Settings as SettingsIcon,
-  Globe,
-  Link as LinkIcon,
-  Download,
-  Upload,
-  RefreshCw,
-  Loader2,
-  Type,
-  List,
-  Layout,
-  Sparkles,
-  Copy,
-  Check,
-  Minus,
-  Square,
-  X
+  ChevronRight, 
+  Save, 
+  Clock, 
+  Settings as SettingsIcon, 
+  Globe, 
+  Link as LinkIcon, 
+  Download, 
+  Upload, 
+  RefreshCw, 
+  Loader2, 
+  Type, 
+  List, 
+  Layout, 
+  Sparkles, 
+  Copy, 
+  Check, 
+  Minus, 
+  Square, 
+  X 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
@@ -52,21 +51,12 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { parseFountain } from '@/src/lib/editor-engine';
-import { GitStatus, GitLogEntry } from '@/src/types';
+import { GitStatus, GitLogEntry, BlockType, ScriptBlock, TerminalOutput } from '@/src/types';
 import { apiCall, getPlatform, isDesktop } from '@/src/lib/platform';
+import { fountainToBlocks, blocksToFountain } from '@/src/lib/fountain';
+import { StatusBar } from '@/src/components/StatusBar';
 
-type BlockType = 'scene' | 'action' | 'character' | 'parenthetical' | 'dialogue' | 'transition' | 'shot' | 'general';
 
-interface ScriptBlock {
-  id: string;
-  type: BlockType;
-  content: string;
-}
-
-interface TerminalOutput {
-  type: 'command' | 'stdout' | 'stderr' | 'error';
-  content: string;
-}
 
 export default function App() {
   const [activePath, setActivePath] = useState<string | null>(null);
@@ -674,18 +664,7 @@ export default function App() {
         // Handle manual override
         const manualType = lineEl.getAttribute('data-type') as BlockType;
         if (manualType) {
-          // If the manual type is 'scene' but the user removed the dot/prefix,
-          // we should probably clear the override to allow it to become action,
-          // UNLESS the block was just focused and edited (tricky to detect).
-          // Better: If it was a forced scene (has dot) and they removed the dot,
-          // then the heuristic 'hasNaturalPrefix' will be false. 
-          // If they want to KEEP it a scene heading without a dot/prefix, it's NOT valid Fountain.
-          // So we should favor the heuristic for scenes if it doesn't match.
-          if (manualType === 'scene' && !(forcedScene || naturalScene)) {
-            // Drop back to heuristic
-          } else {
-            type = manualType;
-          }
+          type = manualType;
         }
 
         let id = subIdx === 0 ? lineEl.id : '';
@@ -887,152 +866,7 @@ export default function App() {
     updateActiveTypeFromSelection();
   };
 
-  const fountainToBlocks = (fountain: string): ScriptBlock[] => {
-    if (!fountain || fountain.trim() === '') {
-      return [{ id: 'block-' + Math.random().toString(36).substring(2, 9), type: 'action', content: '' }];
-    }
-    
-    // Normalize newlines and split
-    const lines = fountain.replace(/\r\n/g, '\n').split('\n');
-    
-    // Remove extra trailing newline if present to prevent growing vertical space
-    if (lines.length > 0 && lines[lines.length - 1] === '' && fountain.endsWith('\n')) {
-      lines.pop();
-    }
-    
-    const result: ScriptBlock[] = [];
 
-    lines.forEach((line, index) => {
-      let type: BlockType = 'action';
-      let content = line.trim();
-
-      if (content === '') {
-        result.push({ id: `block-${result.length}`, type: 'action', content: '' });
-        return;
-      }
-
-      // Check for forced type prefixes
-      if (content.startsWith('!')) {
-        type = 'action';
-        // Strip the forced action prefix so it doesn't appear in the editor
-        line = line.replace(/^(\s*)!/, '$1');
-      } 
-      else if (content.startsWith('~')) {
-        type = 'dialogue';
-        // Strip the forced dialogue prefix
-        line = line.replace(/^(\s*)~/, '$1');
-      }
-      // 1. Scene Heading
-      else if (content.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(content)) {
-        type = 'scene';
-        if (content.startsWith('.')) {
-          // Strip the forced scene dot for the blocks
-          content = content.substring(1).trim();
-        }
-      } 
-      // 2. Transition
-      else if (content.startsWith('>') || content.toUpperCase().endsWith(' TO:')) {
-        type = 'transition';
-      }
-      // 3. Parenthetical
-      else if (content.startsWith('(') && content.endsWith(')')) {
-        type = 'parenthetical';
-      }
-      // 4. Character
-      else if (content.startsWith('@')) {
-        type = 'character';
-      }
-      else if (content === content.toUpperCase() && !/^\d+$/.test(content)) {
-        type = 'character';
-      }
-      // 5. Dialogue
-      else {
-        // Look back for character, dialogue continuation
-        let j = result.length - 1;
-        if (j >= 0) {
-          const prev = result[j];
-          // Dialogue MUST stay dialogue if it follows character, parenthetical OR another dialogue
-          // BUT only if there was no empty line (our splitter keeps empty lines as blocks)
-          if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && prev.content.trim() !== '') {
-            type = 'dialogue';
-          }
-        }
-      }
-
-      result.push({ id: `block-${result.length}`, type, content });
-    });
-
-    return result;
-  };
-
-  const blocksToFountain = (blocks: ScriptBlock[]): string => {
-    return blocks.map((block, index) => {
-      const content = block.content;
-      const trimmed = content.trim();
-
-      if (trimmed === '') return content;
-      
-      // If it is forced type but wouldn't be detected as such, add prefix
-      if (block.type === 'character' && !trimmed.startsWith('@')) {
-        const isUppercase = trimmed === trimmed.toUpperCase() && !/^\d+$/.test(trimmed);
-        if (!isUppercase) return '@' + content;
-      }
-      
-      if (block.type === 'scene' && !trimmed.startsWith('.') && !/^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(trimmed)) {
-        return '.' + content;
-      }
-      
-      if (block.type === 'transition' && !trimmed.startsWith('>') && !trimmed.toUpperCase().endsWith(' TO:')) {
-        return '>' + content;
-      }
-
-      if (block.type === 'dialogue') {
-        const isForcedDialogue = trimmed.startsWith('~');
-        if (isForcedDialogue) return content;
-
-        // Check if it would be misparsed as action
-        let followsCharacter = false;
-        if (index > 0) {
-          const prev = blocks[index-1];
-          if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && prev.content.trim() !== '') {
-            followsCharacter = true;
-          }
-        }
-
-        if (!followsCharacter) {
-          return '~' + content;
-        }
-      }
-
-      if (block.type === 'action') {
-        const isForcedAction = trimmed.startsWith('!');
-        if (isForcedAction) return content;
-
-        // Check if it would be misparsed as dialogue. 
-        // In Fountain, any indented line OR non-uppercase line following a character/parenthetical/dialogue 
-        // WITHOUT an empty line between is dialogue.
-        let wouldBeDialogue = false;
-        if (index > 0) {
-          const prev = blocks[index-1];
-          // If the previous block was character-related AND not empty
-          if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && prev.content.trim() !== '') {
-            wouldBeDialogue = true;
-          }
-        }
-
-        const wouldBeScene = trimmed.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(trimmed);
-        const wouldBeTransition = trimmed.startsWith('>') || trimmed.toUpperCase().endsWith(' TO:');
-        const wouldBeCharacter = trimmed.startsWith('@') || (trimmed === trimmed.toUpperCase() && trimmed.length > 0 && !/^\d+$/.test(trimmed));
-        const wouldBeParenthetical = trimmed.startsWith('(') && trimmed.endsWith(')');
-
-        if (wouldBeDialogue || wouldBeScene || wouldBeTransition || wouldBeCharacter || wouldBeParenthetical) {
-          return '!' + content;
-        }
-      }
-      
-      return content;
-    }).join('\n');
-  };
 
   const updateBlock = (id: string, updates: Partial<ScriptBlock>) => {
     const newBlocks = blocks.map(b => b.id === id ? { ...b, ...updates } : b);
@@ -2956,50 +2790,16 @@ Snippet:
         </div>
 
         {/* Status Bar */}
-        <footer className="h-[28px] glass-panel border-t flex items-center justify-between px-4 text-[11px] text-foreground/60 shrink-0">
-          <div className="flex items-center gap-5">
-            <div className="flex items-center gap-1.5 text-foreground font-medium" title={gitStatus?.isRepo ? (gitStatus.status?.files?.length > 0 ? "Uncommitted changes" : gitStatus.status?.ahead > 0 ? "Unpushed changes" : "Up to date") : "Not a git repository"}>
-              <GitBranch className={`w-3.5 h-3.5 ${isGitHubConnected ? (gitStatus?.isRepo ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/40') : 'text-muted-foreground/20'}`} />
-              <span className="flex items-center">
-                {!isGitHubConnected ? (
-                  <span className="text-muted-foreground/40 font-normal italic select-none">GitHub Disconnected</span>
-                ) : !gitStatus?.isRepo ? (
-                  <span className="text-muted-foreground/40 font-normal italic select-none">No Git Repo</span>
-                ) : (
-                  <>
-                    <span className="max-w-[80px] truncate">{gitStatus.branch || 'main'}</span>
-                    {(gitStatus.status?.files?.length > 0 || (gitStatus.status?.ahead || 0) > 0) && (
-                      <span className="ml-1 w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
-                    )}
-                  </>
-                )}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 min-w-[120px]">
-              <span>Page</span>
-              <input
-                type="text"
-                value={jumpPageInput}
-                onChange={(e) => setJumpPageInput(e.target.value)}
-                onBlur={() => setJumpPageInput(currentPage.toString())}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleJumpToPage();
-                    (e.target as HTMLInputElement).blur();
-                  }
-                }}
-                className="w-10 h-6 bg-transparent border-b border-border/50 hover:border-indigo-400 focus:border-indigo-500 text-center outline-none transition-all font-medium pt-0.5 text-foreground"
-              />
-              <span className="opacity-60">of {pageCount}</span>
-            </div>
-            <span>{wordCount} words</span>
-          </div>
-          
-          <div className="flex items-center gap-5">
-            <span>UTF-8</span>
-            <span>Fountain 1.1</span>
-          </div>
-        </footer>
+        <StatusBar
+          gitStatus={gitStatus}
+          isGitHubConnected={isGitHubConnected}
+          jumpPageInput={jumpPageInput}
+          setJumpPageInput={setJumpPageInput}
+          currentPage={currentPage}
+          handleJumpToPage={handleJumpToPage}
+          pageCount={pageCount}
+          wordCount={wordCount}
+        />
 
         {/* Settings Dialog */}
         <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
