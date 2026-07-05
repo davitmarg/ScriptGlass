@@ -49,6 +49,7 @@ import { Terminal } from '@/src/components/Terminal';
 import { RightSidebar } from '@/src/components/RightSidebar';
 import { SettingsDialog } from '@/src/components/SettingsDialog';
 import { DeleteConfirmDialog } from '@/src/components/DeleteConfirmDialog';
+import { NewScriptDialog } from '@/src/components/NewScriptDialog';
 
 
 
@@ -2248,39 +2249,15 @@ Snippet:
 
 
         {/* New Script Dialog */}
-        <Dialog open={isNewScriptOpen} onOpenChange={setIsNewScriptOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>New Script</DialogTitle>
-              <DialogDescription>
-                Create a new Fountain script in folder: <strong>{getBasename(activePath)}</strong>
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="scriptName" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Script Name</Label>
-                <Input 
-                  id="scriptName" 
-                  placeholder="e.g. pilot_episode" 
-                  value={newScriptName}
-                  onChange={(e) => setNewScriptName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreateFile();
-                  }}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  The .fountain extension will be added automatically.
-                </p>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsNewScriptOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreateFile} disabled={!newScriptName}>
-                Create Script
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <NewScriptDialog
+          isOpen={isNewScriptOpen}
+          onOpenChange={setIsNewScriptOpen}
+          activePath={activePath}
+          getBasename={getBasename}
+          newScriptName={newScriptName}
+          setNewScriptName={setNewScriptName}
+          onCreate={handleCreateFile}
+        />
       </div>
     </TooltipProvider>
   );
