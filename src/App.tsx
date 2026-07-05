@@ -47,6 +47,7 @@ import { Sidebar } from '@/src/components/Sidebar';
 import { FileList } from '@/src/components/FileList';
 import { Terminal } from '@/src/components/Terminal';
 import { RightSidebar } from '@/src/components/RightSidebar';
+import { SettingsDialog } from '@/src/components/SettingsDialog';
 
 
 
@@ -2044,74 +2045,13 @@ Snippet:
         />
 
         {/* Settings Dialog */}
-        <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Settings</DialogTitle>
-              <DialogDescription>
-                Configure your workspace preferences.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="baseDir" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Default Projects Location</Label>
-                <Input 
-                  id="baseDir" 
-                  value={settings.baseProjectsDir}
-                  onChange={(e) => setSettings({ ...settings, baseProjectsDir: e.target.value })}
-                  placeholder="/path/to/your/projects"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="geminiKey" className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Gemini API Key</Label>
-                <Input 
-                  id="geminiKey" 
-                  type="password"
-                  value={settings.geminiKey}
-                  onChange={(e) => setSettings({ ...settings, geminiKey: e.target.value })}
-                  placeholder="Paste your API key here"
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Required for AI Enhance features. Your key is stored locally in your browser.
-                </p>
-              </div>
-              <div className="grid gap-2">
-                <Label className="text-[10px] uppercase tracking-wider text-foreground/60 font-bold mb-1">Theme</Label>
-                <div className="flex bg-indigo-50/50 dark:bg-white/5 rounded-lg p-1 gap-1">
-                  {(['light', 'dark', 'system'] as const).map((t) => (
-                    <button
-                      key={t}
-                      onClick={async () => {
-                        const newSettings = { ...settings, theme: t };
-                        setSettings(newSettings);
-                        // Save immediately to server as well
-                        try {
-                          await apiCall('/api/settings', {
-                            method: 'POST',
-                            body: newSettings,
-                          });
-                        } catch (e) {
-                          console.error("Failed to sync theme to server", e);
-                        }
-                      }}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-medium transition-all ${
-                        settings.theme === t 
-                          ? 'bg-white dark:bg-indigo-500 text-indigo-600 dark:text-white shadow-sm' 
-                          : 'text-muted-foreground hover:text-indigo-900 dark:hover:text-gray-200'
-                      }`}
-                    >
-                      <span className="capitalize">{t === 'system' ? 'Same as system' : t}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsSettingsOpen(false)}>Cancel</Button>
-              <Button onClick={handleUpdateSettings}>Save Settings</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <SettingsDialog
+          isOpen={isSettingsOpen}
+          onOpenChange={setIsSettingsOpen}
+          settings={settings}
+          setSettings={setSettings}
+          onSave={handleUpdateSettings}
+        />
 
         {/* Workspace Picker Dialog */}
         <Dialog open={isWorkspacePickerOpen} onOpenChange={setIsWorkspacePickerOpen}>
