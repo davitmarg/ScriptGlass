@@ -48,6 +48,7 @@ import { FileList } from '@/src/components/FileList';
 import { Terminal } from '@/src/components/Terminal';
 import { RightSidebar } from '@/src/components/RightSidebar';
 import { SettingsDialog } from '@/src/components/SettingsDialog';
+import { DeleteConfirmDialog } from '@/src/components/DeleteConfirmDialog';
 
 
 
@@ -2238,23 +2239,12 @@ Snippet:
         </Dialog>
 
         {/* Delete Confirmation Dialog */}
-        <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-red-600">
-                <Trash2 className="w-5 h-5" />
-                Delete Script
-              </DialogTitle>
-              <DialogDescription>
-                Are you sure you want to delete <strong>{fileToDelete}</strong>? This action cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</Button>
-              <Button variant="destructive" onClick={performDeleteFile}>Delete Script</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <DeleteConfirmDialog
+          isOpen={isDeleteConfirmOpen}
+          onOpenChange={setIsDeleteConfirmOpen}
+          fileToDelete={fileToDelete}
+          onConfirm={performDeleteFile}
+        />
 
 
         {/* New Script Dialog */}
