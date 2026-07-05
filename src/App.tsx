@@ -11,7 +11,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import { useMemo, useCallback } from 'react';
-import { GoogleGenAI } from "@google/genai";
+import { useWorkspace } from '@/src/hooks/useWorkspace';
+import { useAi } from '@/src/hooks/useAi';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -49,23 +50,16 @@ import { WorkspacePickerDialog } from '@/src/components/dialogs/WorkspacePickerD
 
 
 export default function App() {
-  const [activePath, setActivePath] = useState<string | null>(null);
-  const [files, setFiles] = useState<string[]>([]);
-  const [activeFile, setActiveFile] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<ScriptBlock[]>([]);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<BlockType>('action');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [githubToken, setGithubToken] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(false);
-  const [isFilesLoading, setIsFilesLoading] = useState(false);
   const [isEditorReady, setIsEditorReady] = useState(false);
-  const [projectKey, setProjectKey] = useState(0);
   const [titlePage, setTitlePage] = useState({
     title: '',
     credit: 'written by',
@@ -83,9 +77,6 @@ export default function App() {
     theme: (localStorage.getItem('sg_theme') || 'system') as 'light' | 'dark' | 'system'
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isWorkspacePickerOpen, setIsWorkspacePickerOpen] = useState(false);
-  const [workspaceData, setWorkspaceData] = useState({ path: '', type: 'open' as 'open' | 'clone' | 'create', url: '', name: '' });
-  const [recentFolders, setRecentFolders] = useState<string[]>([]);
   const [isNewScriptOpen, setIsNewScriptOpen] = useState(false);
   const [newScriptName, setNewScriptName] = useState('');
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -93,68 +84,77 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState<'formatting' | 'outline' | 'title' | 'ai'>('formatting');
-  const [aiSnippet, setAiSnippet] = useState('');
-  const [aiOptions, setAiOptions] = useState<string[]>([]);
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [history, setHistory] = useState<{ blocks: ScriptBlock[]; selection: { blockId: string | null; offset: number } }[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [isBrowserOpen, setIsBrowserOpen] = useState(false);
-  const [browserData, setBrowserData] = useState<{ currentPath: string; parentPath: string; directories: string[]; sep: string; isRoot?: boolean }>({
-    currentPath: '',
-    parentPath: '',
-    directories: [],
-    sep: '/',
-    isRoot: false
-  });
 
-  const fetchBrowseData = async (targetPath?: string) => {
-    try {
-      const url = targetPath ? `/api/browse?path=${encodeURIComponent(targetPath)}` : '/api/browse';
-      const data = await apiCall(url);
-      if (data.error) {
-        toast.error(data.error);
-        return;
-      }
-      setBrowserData(data);
-    } catch (error) {
-      console.error('Browse error:', error);
-      toast.error(`Failed to browse: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      // Fallback to ROOT if stuck
-      if (targetPath && targetPath !== 'ROOT') {
-        fetchBrowseData('ROOT');
-      }
-    }
+  const clearEditorState = () => {
+    setBlocks([]);
+    setIsEditorReady(false);
+    if (editorRef.current) editorRef.current.innerHTML = '';
+    currentEditorFile.current = null;
+    setHistory([]);
+    setHistoryIndex(-1);
+    setTitlePage({
+      title: '',
+      credit: 'written by',
+      author: '',
+      source: '',
+      notes: '',
+      contact: ''
+    });
   };
 
-  const handleBrowseNavigate = (dir: string) => {
-    let newPath = '';
-    
-    if (browserData.currentPath === 'ROOT') {
-      // dir already contains drive letter and separator
-      newPath = dir;
-    } else {
-      newPath = browserData.currentPath.endsWith(browserData.sep) 
-        ? `${browserData.currentPath}${dir}` 
-        : `${browserData.currentPath}${browserData.sep}${dir}`;
-    }
-    
-    fetchBrowseData(newPath);
-  };
+  const {
+    activePath,
+    setActivePath,
+    files,
+    setFiles,
+    activeFile,
+    setActiveFile,
+    gitStatus,
+    setGitStatus,
+    isInitialLoading,
+    setIsInitialLoading,
+    isFilesLoading,
+    setIsFilesLoading,
+    projectKey,
+    setProjectKey,
+    recentFolders,
+    setRecentFolders,
+    isWorkspacePickerOpen,
+    setIsWorkspacePickerOpen,
+    workspaceData,
+    setWorkspaceData,
+    isBrowserOpen,
+    setIsBrowserOpen,
+    browserData,
+    setBrowserData,
+    fetchGitStatus,
+    fetchFiles,
+    fetchBrowseData,
+    handleBrowseNavigate,
+    handleBrowseBack,
+    handleSelectFolder,
+    handleOpenWorkspace,
+    getBasename,
+  } = useWorkspace(settings, clearEditorState, () => setBlocks([]));
 
-  const handleBrowseBack = () => {
-    if (browserData.parentPath) {
-      fetchBrowseData(browserData.parentPath);
-    }
-  };
+  const {
+    aiSnippet,
+    setAiSnippet,
+    aiOptions,
+    setAiOptions,
+    isAiLoading,
+    copiedIndex,
+    handleGetAiSuggestions,
+    copyToClipboard,
+  } = useAi(settings, setIsSettingsOpen);
 
-  const handleSelectFolder = () => {
-    setWorkspaceData({ ...workspaceData, path: browserData.currentPath });
-    setIsBrowserOpen(false);
-  };
   const [currentPage, setCurrentPage] = useState(1);
   const [jumpPageInput, setJumpPageInput] = useState('1');
+
+
   const currentEditorFile = useRef<string | null>(null);
 
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
@@ -232,39 +232,14 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
-  // Load last session and recent history
+  // Load github token
   useEffect(() => {
-    const lastPath = localStorage.getItem('sg_last_path');
-    const recentsRaw = localStorage.getItem('sg_recent_folders');
-    let recents = [];
-    try {
-      recents = JSON.parse(recentsRaw || '[]');
-      if (!Array.isArray(recents)) recents = [];
-    } catch {
-      recents = [];
-    }
-    setRecentFolders(recents);
-
     const savedToken = localStorage.getItem('sg_github_token');
     if (savedToken) {
       setGithubToken(savedToken);
       setIsGitHubConnected(true);
     }
-
-    if (lastPath && lastPath !== 'undefined' && lastPath !== 'null') {
-      // Small timeout to allow basic init
-      setTimeout(() => {
-        handleOpenWorkspace(lastPath);
-      }, 500);
-    }
   }, []);
-
-  const addToRecentFolders = (path: string) => {
-    const recents = JSON.parse(localStorage.getItem('sg_recent_folders') || '[]');
-    const filtered = [path, ...recents.filter((p: string) => p !== path)].slice(0, 3);
-    setRecentFolders(filtered);
-    localStorage.setItem('sg_recent_folders', JSON.stringify(filtered));
-  };
 
   const suggestions = useMemo(() => {
     const characters = new Set<string>();
@@ -876,11 +851,7 @@ export default function App() {
 
   const encodePath = (path: string) => btoa(path);
 
-  const getBasename = (pathStr: string | null) => {
-    if (!pathStr) return '';
-    const parts = pathStr.split(/[/\\]/);
-    return parts[parts.length - 1] || parts[parts.length - 2] || pathStr;
-  };
+
 
   const fetchSettings = async () => {
     try {
@@ -942,31 +913,7 @@ export default function App() {
     fetchSettings();
   }, []);
 
-  useEffect(() => {
-    setActiveFile(null);
-    setBlocks([]);
-    setIsEditorReady(false);
-    if (editorRef.current) editorRef.current.innerHTML = '';
-    currentEditorFile.current = null;
-    setHistory([]);
-    setHistoryIndex(-1);
-    setTitlePage({
-      title: '',
-      credit: 'written by',
-      author: '',
-      source: '',
-      notes: '',
-      contact: ''
-    });
-    if (activePath) {
-      setIsInitialLoading(true);
-      fetchFiles(activePath);
-      fetchGitStatus(activePath);
-    } else {
-      setFiles([]);
-      setIsInitialLoading(false);
-    }
-  }, [activePath, projectKey]);
+
 
   useEffect(() => {
     if (activePath && activeFile) {
@@ -1221,34 +1168,7 @@ export default function App() {
     }
   }, [jumpPageInput, pageCount, currentPage, blocks]);
 
-   const fetchFiles = async (absPath: string) => {
-    setIsFilesLoading(true);
-    try {
-      const data = await apiCall(`/api/workspace/${encodePath(absPath)}/files`);
-      const filesList = Array.isArray(data) ? data : [];
-      setFiles(filesList);
-      if (filesList.length > 0) {
-        const lastFileKey = `sg_last_file_${absPath}`;
-        const savedLastFile = localStorage.getItem(lastFileKey);
-        
-        // If we have a saved file and it's still in the list, use it.
-        // Otherwise, if we don't have an active file or it's gone, default to the first one.
-        if (savedLastFile && filesList.includes(savedLastFile)) {
-          setActiveFile(savedLastFile);
-        } else if (!activeFile || !filesList.includes(activeFile)) {
-          setActiveFile(filesList[0]);
-        }
-      } else {
-        setActiveFile(null);
-        setBlocks([]);
-        setIsInitialLoading(false);
-      }
-    } catch (error) {
-      toast.error('Failed to fetch files');
-    } finally {
-      setIsFilesLoading(false);
-    }
-  };
+
 
   const fetchFileContent = async (absPath: string, filename: string) => {
     try {
@@ -1353,141 +1273,7 @@ export default function App() {
     }
   };
 
-  const fetchGitStatus = async (absPath: string) => {
-    try {
-      const data = await apiCall(`/api/workspace/${encodePath(absPath)}/git/status`);
-      setGitStatus(data);
-    } catch (error) {
-      console.error('Failed to fetch git status');
-    }
-  };
 
-  const handleOpenWorkspace = async (manualPath?: string | React.MouseEvent | React.KeyboardEvent) => {
-    try {
-      const isManualPath = typeof manualPath === 'string';
-      let folderPath = isManualPath ? manualPath : workspaceData.path;
-      
-      if (!isManualPath) {
-        const base = settings.baseProjectsDir || '';
-        if (workspaceData.type === 'create') {
-          const name = workspaceData.name || 'Untitled';
-          folderPath = base ? (base.endsWith('/') || base.endsWith('\\') ? `${base}${name}` : `${base}/${name}`) : name;
-        } else if (workspaceData.type === 'clone' && !folderPath) {
-          if (!workspaceData.url) {
-            toast.error('Please provide a repository URL');
-            return;
-          }
-          const urlSegments = workspaceData.url.split('/');
-          const repoName = urlSegments[urlSegments.length - 1]?.split('?')[0]?.replace('.git', '') || 'cloned-repo';
-          folderPath = base ? (base.endsWith('/') || base.endsWith('\\') ? `${base}${repoName}` : `${base}/${repoName}`) : repoName;
-        }
-      }
-
-      if (!folderPath) {
-        if (!isManualPath) toast.error('Please provide a folder path');
-        return;
-      }
-
-      const data = await apiCall('/api/workspace/open', {
-        method: 'POST',
-        body: { 
-          folderPath: folderPath,
-          type: isManualPath ? 'open' : workspaceData.type,
-          url: workspaceData.url 
-        },
-      });
-      setActivePath(data.path);
-      setProjectKey(prev => prev + 1);
-      if (data.path && data.path !== 'undefined' && data.path !== 'null') {
-        localStorage.setItem('sg_last_path', data.path);
-        addToRecentFolders(data.path);
-      }
-      setIsWorkspacePickerOpen(false);
-      setWorkspaceData({ path: '', type: 'open', url: '', name: '' });
-
-      if (!isManualPath) {
-        toast.success(
-          workspaceData.type === 'clone' ? 'Repository cloned and opened' : 
-          workspaceData.type === 'create' ? 'Folder created and opened' : 'Folder opened'
-        );
-      }
-    } catch (error: any) {
-      if (typeof manualPath !== 'string') {
-        toast.error(`Failed to handle workspace: ${error.message}`);
-      } else {
-        console.warn(`Last session path "${manualPath}" ignored: ${error.message}`);
-      }
-    }
-  };
-
-  const handleGetAiSuggestions = async () => {
-    if (!aiSnippet.trim()) return;
-    if (!settings.geminiKey) {
-      toast.error("Please add your Gemini API Key in Settings");
-      setIsSettingsOpen(true);
-      return;
-    }
-
-    setIsAiLoading(true);
-    setAiOptions([]);
-
-    try {
-      const trimmedKey = settings.geminiKey.trim();
-      if (!trimmedKey) {
-        toast.error("Please add your Gemini API Key in Settings");
-        setIsSettingsOpen(true);
-        return;
-      }
-
-      const ai = new GoogleGenAI({ apiKey: trimmedKey });
-      const prompt = `You are a professional Hollywood script doctor. 
-Enhance the following screenplay snippet. Provide 3 distinct variations that are better aligned with standard screenwriting conventions, tight dialogue, and evocative action descriptions.
-
-CRITICAL INSTRUCTIONS:
-- Do NOT add scene headings (sluglines), transitions, or any character names if not present in the input.
-- Maintain the EXACT element type. If the input is dialogue, output ONLY enhanced dialogue. If it is action, output ONLY enhanced action.
-- Do NOT add any surrounding context or framing.
-- Return ONLY a valid JSON array of exactly 3 strings.
-
-Snippet:
-"${aiSnippet}"`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json"
-        }
-      });
-      
-      const rawText = response.text || '[]';
-      // Sanitize response to ensure it's just the JSON array
-      const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-      const text = jsonMatch ? jsonMatch[0] : rawText;
-      
-      try {
-        const parsed = JSON.parse(text);
-        setAiOptions(Array.isArray(parsed) ? parsed : []);
-      } catch (parseError) {
-        console.error("JSON Parsing Error:", parseError, "Raw Text:", rawText);
-        // Fallback: If it's not a JSON array, maybe it's just text?
-        // But we expect JSON. Let's try to extract if it looks like an array.
-        toast.error("AI returned malformed data. Please try again.");
-      }
-    } catch (error: any) {
-      console.error(error);
-      toast.error("Failed to get AI suggestions. Check your API key.");
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
-
-  const copyToClipboard = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
-    toast.success("Copied to clipboard");
-    setTimeout(() => setCopiedIndex(null), 2000);
-  };
 
   const handleUpdateSettings = async () => {
     try {
