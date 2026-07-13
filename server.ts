@@ -63,6 +63,11 @@ async function startServer() {
 
         try {
           await simpleGit().clone(authenticatedUrl, folderPath);
+          try {
+            await simpleGit(folderPath).remote(['set-url', 'origin', cloneUrl]);
+          } catch (remoteErr) {
+            console.error("Failed to clean cloned remote URL:", remoteErr);
+          }
         } catch (error: any) {
           if (error.message.includes("could not read Username") || error.message.includes("Authentication failed")) {
             throw new Error("Authentication failed. Please check your GitHub token in Settings.");

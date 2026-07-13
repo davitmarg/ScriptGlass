@@ -32,25 +32,25 @@ export const fountainToBlocks = (fountain: string): ScriptBlock[] => {
     // Check for forced type prefixes
     if (content.startsWith('!')) {
       type = 'action';
-      // Strip the forced action prefix so it doesn't appear in the editor
-      line = line.replace(/^(\s*)!/, '$1');
+      content = content.substring(1).trim();
     } 
     else if (content.startsWith('~')) {
       type = 'dialogue';
-      // Strip the forced dialogue prefix
-      line = line.replace(/^(\s*)~/, '$1');
+      content = content.substring(1).trim();
     }
     // 1. Scene Heading
     else if (content.startsWith('.') || /^(INT|EXT|INT\/EXT|INT\.\/EXT\.|I\/E|EST|SCENE|SHOT)([. ]|$)/i.test(content)) {
       type = 'scene';
       if (content.startsWith('.')) {
-        // Strip the forced scene dot for the blocks
         content = content.substring(1).trim();
       }
     } 
     // 2. Transition
     else if (content.startsWith('>') || content.toUpperCase().endsWith(' TO:')) {
       type = 'transition';
+      if (content.startsWith('>')) {
+        content = content.substring(1).trim();
+      }
     }
     // 3. Parenthetical
     else if (content.startsWith('(') && content.endsWith(')')) {
@@ -59,6 +59,7 @@ export const fountainToBlocks = (fountain: string): ScriptBlock[] => {
     // 4. Character
     else if (content.startsWith('@')) {
       type = 'character';
+      content = content.substring(1).trim();
     }
     else if (content === content.toUpperCase() && !/^\d+$/.test(content)) {
       type = 'character';
