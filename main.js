@@ -136,7 +136,21 @@ ipcMain.handle('/api/workspace/open', async (event, { folderPath, type, url }) =
         u.password = settings.githubToken;
         authenticatedUrl = u.toString();
       }
-      await simpleGit().clone(authenticatedUrl, folderPath);
+      await simpleGit({
+        unsafe: {
+          allowUnsafeCredentialHelper: true
+        }
+      }).clone(authenticatedUrl, folderPath);
+      try {
+        await simpleGit({
+          baseDir: folderPath,
+          unsafe: {
+            allowUnsafeCredentialHelper: true
+          }
+        }).remote(['set-url', 'origin', url]);
+      } catch (remoteErr) {
+        console.error("Failed to clean cloned remote URL in main.js:", remoteErr);
+      }
     } else {
       await fs.mkdir(folderPath, { recursive: true });
     }

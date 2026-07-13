@@ -90,7 +90,12 @@ export class GitManager {
 
   constructor(absPath: string) {
     this.absPath = absPath;
-    this.git = simpleGit(this.absPath);
+    this.git = simpleGit({
+      baseDir: this.absPath,
+      unsafe: {
+        allowUnsafeCredentialHelper: true
+      }
+    } as any);
   }
 
   async getGitHubUser(token: string): Promise<{ login: string; name: string; email: string } | null> {

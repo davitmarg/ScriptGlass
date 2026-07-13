@@ -68,7 +68,20 @@
     ],
     "win": {
       "target": "nsis",
+      "icon": "public/electron-icons/windows/icon.ico",
       "artifactName": "ScriptGlass-Setup.exe"
+    },
+    "mac": {
+      "icon": "public/electron-icons/macos/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
     },
     "asar": true
   }
