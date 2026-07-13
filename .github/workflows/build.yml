@@ -32,6 +32,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
           GITHUB_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          ELECTRON_GITHUB_CLIENT_ID: ${{ secrets.ELECTRON_GH_CLIENT_ID }}
+          ELECTRON_GITHUB_CLIENT_SECRET: ${{ secrets.ELECTRON_GH_CLIENT_SECRET }}
 
       - name: Create or Update Release
         uses: softprops/action-gh-release@v2
@@ -66,6 +68,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
           GITHUB_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          ELECTRON_GITHUB_CLIENT_ID: ${{ secrets.ELECTRON_GH_CLIENT_ID }}
+          ELECTRON_GITHUB_CLIENT_SECRET: ${{ secrets.ELECTRON_GH_CLIENT_SECRET }}
 
       - name: Create or Update Release
         uses: softprops/action-gh-release@v2
