@@ -11,8 +11,10 @@ const getBasename = (path: string | null) => {
 
 export const useWorkspace = (
   settings: { baseProjectsDir: string },
+  githubToken: string,
   onClearEditor: () => void,
-  onResetBlocks: () => void
+  onResetBlocks: () => void,
+  onFileCreated: (id: string) => void
 ) => {
   const [activePath, setActivePath] = useState<string | null>(null);
   const [files, setFiles] = useState<string[]>([]);
@@ -32,6 +34,17 @@ export const useWorkspace = (
     sep: '/',
     isRoot: false
   });
+
+  // File Creation & Deletion Dialog States
+  const [isNewScriptOpen, setIsNewScriptOpen] = useState(false);
+  const [newScriptName, setNewScriptName] = useState('');
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<string | null>(null);
+
+  // Git Status Sync & Pull States
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
+  const [syncCommitMessage, setSyncCommitMessage] = useState('');
 
   const fetchGitStatus = async (absPath: string) => {
     try {
@@ -173,6 +186,111 @@ export const useWorkspace = (
     }
   };
 
+  const handleCreateFile = async () => {
+    if (!activePath) {
+      toast.error('Please open a folder first');
+      return;
+    }
+    if (!newScriptName) return;
+    const filename = newScriptName.endsWith('.fountain') ? newScriptName : `${newScriptName}.fountain`;
+    try {
+      const initialContent = '';
+      await apiCall(`/api/workspace/${encodePath(activePath)}/files/${filename}`, {
+        method: 'POST',
+        body: { content: initialContent },
+      });
+      
+      await fetchFiles(activePath);
+      setActiveFile(filename);
+      setIsNewScriptOpen(false);
+      setNewScriptName('');
+      
+      const id = 'line-' + Date.now();
+      onFileCreated(id);
+      toast.success('File created');
+    } catch (error: any) {
+      toast.error(`Failed to create file: ${error.message}`);
+    }
+  };
+
+  const confirmDeleteFile = (filename: string) => {
+    setFileToDelete(filename);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const performDeleteFile = async () => {
+    if (!activePath || !fileToDelete) return;
+    try {
+      await apiCall(`/api/workspace/${encodePath(activePath)}/files/${fileToDelete}`, { method: 'DELETE' });
+      await fetchFiles(activePath);
+      if (activeFile === fileToDelete) {
+        setActiveFile(null);
+        onResetBlocks();
+      }
+      toast.success('File deleted');
+    } catch (error) {
+      toast.error('Failed to delete file');
+    } finally {
+      setIsDeleteConfirmOpen(false);
+      setFileToDelete(null);
+    }
+  };
+
+  const handleSync = async () => {
+    if (!activePath) return;
+    if (!githubToken) {
+      toast.error('Please connect your GitHub account first');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      await apiCall(`/api/workspace/${encodePath(activePath)}/git/sync`, {
+        method: 'POST',
+        body: { token: githubToken, commitMessage: syncCommitMessage },
+      });
+      
+      toast.success('Successfully pushed to GitHub');
+      setSyncCommitMessage('');
+      fetchGitStatus(activePath);
+    } catch (error: any) {
+      toast.error(`Failed to push: ${error.message}`);
+      console.error(error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handlePull = async () => {
+    if (!activePath) return;
+    if (!githubToken) {
+      toast.error('Please connect your GitHub account first');
+      return;
+    }
+    setIsPulling(true);
+    try {
+      const data = await apiCall(`/api/workspace/${encodePath(activePath)}/git/pull`, {
+        method: 'POST',
+        body: { token: githubToken },
+      });
+      
+      if (data.message) {
+        toast.info(data.message);
+      } else {
+        toast.success('Successfully retrieved latest from GitHub');
+      }
+      
+      setTimeout(() => {
+        fetchFiles(activePath);
+        fetchGitStatus(activePath);
+      }, 500);
+    } catch (error: any) {
+      toast.error(`Failed to pull: ${error.message}`);
+      console.error(error);
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
   // Load last session and recent history
   useEffect(() => {
     const lastPath = localStorage.getItem('sg_last_path');
@@ -238,5 +356,26 @@ export const useWorkspace = (
     handleSelectFolder,
     handleOpenWorkspace,
     getBasename,
+
+    // File creation / deletion
+    isNewScriptOpen,
+    setIsNewScriptOpen,
+    newScriptName,
+    setNewScriptName,
+    isDeleteConfirmOpen,
+    setIsDeleteConfirmOpen,
+    fileToDelete,
+    setFileToDelete,
+    handleCreateFile,
+    confirmDeleteFile,
+    performDeleteFile,
+
+    // Git Operations
+    isSyncing,
+    isPulling,
+    syncCommitMessage,
+    setSyncCommitMessage,
+    handleSync,
+    handlePull
   };
 };

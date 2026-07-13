@@ -1,41 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Plus, 
-  Globe, 
-  Link as LinkIcon, 
-  Download, 
-  RefreshCw, 
-  Loader2 
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { jsPDF } from 'jspdf';
-import { useMemo, useCallback } from 'react';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { Toaster } from '@/components/ui/sonner';
 import { useWorkspace } from '@/src/hooks/useWorkspace';
 import { useAi } from '@/src/hooks/useAi';
 import { useEditor } from '@/src/hooks/useEditor';
+import { useSettings } from '@/src/hooks/useSettings';
 import { exportToPDF as runExportToPDF } from '@/src/lib/pdf-exporter';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { toast } from 'sonner';
-import { Toaster } from '@/components/ui/sonner';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { parseFountain } from '@/src/lib/editor-engine';
-import { GitStatus, GitLogEntry, BlockType, ScriptBlock, TerminalOutput } from '@/src/types';
-import { apiCall, getPlatform, isDesktop } from '@/src/lib/platform';
-import { fountainToBlocks, blocksToFountain } from '@/src/lib/fountain';
 import { StatusBar } from '@/src/components/layout/StatusBar';
 import { TitleBar } from '@/src/components/layout/TitleBar';
 import { Sidebar } from '@/src/components/layout/Sidebar';
@@ -49,14 +19,12 @@ import { FolderBrowserDialog } from '@/src/components/dialogs/FolderBrowserDialo
 import { WorkspacePickerDialog } from '@/src/components/dialogs/WorkspacePickerDialog';
 import { EditorCanvas } from '@/src/components/editor/EditorCanvas';
 
-
-
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const [githubToken, setGithubToken] = useState('');
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [isPulling, setIsPulling] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [activeRightTab, setActiveRightTab] = useState<'formatting' | 'outline' | 'title' | 'ai'>('formatting');
   const [titlePage, setTitlePage] = useState({
     title: '',
     credit: 'written by',
@@ -65,22 +33,6 @@ export default function App() {
     notes: '',
     contact: ''
   });
-
-  const [isGitHubConnected, setIsGitHubConnected] = useState(false);
-  const [syncCommitMessage, setSyncCommitMessage] = useState('');
-  const [settings, setSettings] = useState({ 
-    baseProjectsDir: '', 
-    geminiKey: '',
-    theme: (localStorage.getItem('sg_theme') || 'system') as 'light' | 'dark' | 'system'
-  });
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isNewScriptOpen, setIsNewScriptOpen] = useState(false);
-  const [newScriptName, setNewScriptName] = useState('');
-  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [fileToDelete, setFileToDelete] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
-  const [activeRightTab, setActiveRightTab] = useState<'formatting' | 'outline' | 'title' | 'ai'>('formatting');
 
   const editorRef = useRef<HTMLDivElement>(null);
 
@@ -95,6 +47,19 @@ export default function App() {
       contact: ''
     });
   };
+
+  const {
+    settings,
+    setSettings,
+    isSettingsOpen,
+    setIsSettingsOpen,
+    githubToken,
+    setGithubToken,
+    isGitHubConnected,
+    setIsGitHubConnected,
+    handleUpdateSettings,
+    handleConnectGitHub
+  } = useSettings();
 
   const {
     activePath,
@@ -129,9 +94,34 @@ export default function App() {
     handleSelectFolder,
     handleOpenWorkspace,
     getBasename,
-  } = useWorkspace(settings, clearEditorState, () => {
-    if (editorRef.current) editorRef.current.innerHTML = '';
-  });
+
+    // File creation / deletion
+    isNewScriptOpen,
+    setIsNewScriptOpen,
+    newScriptName,
+    setNewScriptName,
+    isDeleteConfirmOpen,
+    setIsDeleteConfirmOpen,
+    fileToDelete,
+    setFileToDelete,
+    handleCreateFile,
+    confirmDeleteFile,
+    performDeleteFile,
+
+    // Git Operations
+    isSyncing,
+    isPulling,
+    syncCommitMessage,
+    setSyncCommitMessage,
+    handleSync,
+    handlePull
+  } = useWorkspace(
+    settings,
+    githubToken,
+    clearEditorState,
+    () => setBlocks([]),
+    (id) => initializeNewScript(id)
+  );
 
   const {
     aiSnippet,
@@ -193,7 +183,6 @@ export default function App() {
     setIsInitialLoading,
   });
 
-
   useEffect(() => {
     const handleFocus = () => {
       if (activePath) fetchGitStatus(activePath);
@@ -201,46 +190,6 @@ export default function App() {
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, [activePath]);
-
-  // Handle external links & GitHub Auth Callback
-  useEffect(() => {
-    if (isDesktop()) {
-      const handleExternalClick = (e: MouseEvent) => {
-        const target = e.target as HTMLElement;
-        const anchor = target.closest('a');
-        if (anchor && anchor.href && (anchor.href.startsWith('http') || anchor.href.startsWith('https'))) {
-          e.preventDefault();
-          // Use our IPC bridge
-          apiCall('open-external-url', { body: { url: anchor.href } });
-        }
-      };
-      document.addEventListener('click', handleExternalClick);
-      
-      // Listen for GitHub token from Main Process
-      const cleanupToken = (window as any).electronAPI?.onGitHubToken(async (token: string) => {
-        setGithubToken(token);
-        setIsGitHubConnected(true);
-        localStorage.setItem('sg_github_token', token);
-        
-        // Also persist to server settings
-        try {
-          await apiCall('/api/settings', {
-            method: 'POST',
-            body: { githubToken: token },
-          });
-          toast.success('GitHub account connected');
-        } catch (error) {
-          console.error('Failed to persist GitHub token to server');
-          toast.success('GitHub account connected (local session)');
-        }
-      });
-
-      return () => {
-        document.removeEventListener('click', handleExternalClick);
-        if (cleanupToken) cleanupToken();
-      };
-    }
-  }, []);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -260,22 +209,9 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
-  // Load github token
-  useEffect(() => {
-    const savedToken = localStorage.getItem('sg_github_token');
-    if (savedToken) {
-      setGithubToken(savedToken);
-      setIsGitHubConnected(true);
-    }
-  }, []);
-
-
-
   const exportToPDF = () => {
     runExportToPDF(blocks, titlePage, activeFile);
   };
-
-
 
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
@@ -297,242 +233,7 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      const origin = event.origin;
-      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
-        return;
-      }
-      if (event.data?.type === 'GITHUB_AUTH_SUCCESS') {
-        const token = event.data.token;
-        setGithubToken(token);
-        setIsGitHubConnected(true);
-        localStorage.setItem('sg_github_token', token);
-        
-        // Persist token to server
-        try {
-          await apiCall('/api/settings', {
-            method: 'POST',
-            body: { githubToken: token },
-          });
-          toast.success('GitHub account connected and saved');
-        } catch (error) {
-          console.error('Failed to persist GitHub token');
-          toast.success('GitHub account connected (local session only)');
-        }
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
-
   const encodePath = (path: string) => btoa(path);
-
-
-
-  const fetchSettings = async () => {
-    try {
-      const data = await apiCall('/api/settings');
-      setSettings(prev => {
-        const next = { ...prev };
-        if (data.baseProjectsDir !== undefined) next.baseProjectsDir = data.baseProjectsDir;
-        if (data.geminiKey !== undefined) next.geminiKey = data.geminiKey;
-        
-        // If the server has a concrete choice (light or dark), it wins.
-        // If the server has 'system' or nothing, the local choice (prev.theme) wins.
-        if (data.theme === 'light' || data.theme === 'dark') {
-          next.theme = data.theme;
-        }
-        
-        return next;
-      });
-      if (data.githubToken) {
-        setGithubToken(data.githubToken);
-        setIsGitHubConnected(true);
-        if (!localStorage.getItem('sg_github_token')) {
-          localStorage.setItem('sg_github_token', data.githubToken);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch settings');
-    }
-  };
-
-  useEffect(() => {
-    const applyTheme = () => {
-      const root = window.document.documentElement;
-      let effectiveTheme = settings.theme;
-      
-      if (settings.theme === 'system') {
-        effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      }
-      
-      if (effectiveTheme === 'dark') {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
-      localStorage.setItem('sg_theme', settings.theme);
-    };
-
-    applyTheme();
-    
-    // Listen for system theme changes if in system mode
-    if (settings.theme === 'system') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const handleChange = () => applyTheme();
-      mediaQuery.addEventListener('change', handleChange);
-      return () => mediaQuery.removeEventListener('change', handleChange);
-    }
-  }, [settings.theme]);
-
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-
-
-  const handleUpdateSettings = async () => {
-    try {
-      await apiCall('/api/settings', {
-        method: 'POST',
-        body: settings,
-      });
-      toast.success('Settings updated');
-      setIsSettingsOpen(false);
-      fetchFiles(activePath);
-    } catch (error: any) {
-      toast.error(`Failed to update settings: ${error.message}`);
-    }
-  };
-
-
-
-  const handleCreateFile = async () => {
-    if (!activePath) {
-      toast.error('Please open a folder first');
-      return;
-    }
-    if (!newScriptName) return;
-    const filename = newScriptName.endsWith('.fountain') ? newScriptName : `${newScriptName}.fountain`;
-    try {
-      const initialContent = '';
-      const data = await apiCall(`/api/workspace/${encodePath(activePath)}/files/${filename}`, {
-        method: 'POST',
-        body: { content: initialContent },
-      });
-      
-      fetchFiles(activePath);
-      setActiveFile(filename);
-      setIsNewScriptOpen(false);
-      setNewScriptName('');
-      
-      const id = 'line-' + Date.now();
-      initializeNewScript(id);
-      
-      // syncEditorFromBlocks will be handled by useEffect
-      toast.success('File created');
-    } catch (error: any) {
-      toast.error(`Failed to create file: ${error.message}`);
-    }
-  };
-
-  const handleConnectGitHub = async () => {
-    try {
-      const data = await apiCall('/api/auth/github/url');
-      if (data.error) throw new Error(data.error);
-
-      if (data.isElectron && (window as any).electronAPI) {
-        (window as any).electronAPI.startGitHubAuth(data.url);
-      } else {
-        window.open(data.url, 'github_oauth', 'width=600,height=700');
-      }
-    } catch (error) {
-      toast.error('Failed to initiate GitHub connection');
-    }
-  };
-
-  const handleSync = async () => {
-    if (!activePath) return;
-    if (!githubToken) {
-      toast.error('Please connect your GitHub account first');
-      return;
-    }
-    setIsSyncing(true);
-    try {
-      const data = await apiCall(`/api/workspace/${encodePath(activePath)}/git/sync`, {
-        method: 'POST',
-        body: { token: githubToken, commitMessage: syncCommitMessage },
-      });
-      
-      toast.success('Successfully pushed to GitHub');
-      setSyncCommitMessage('');
-      fetchGitStatus(activePath);
-    } catch (error: any) {
-      toast.error(`Failed to push: ${error.message}`);
-      console.error(error);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handlePull = async () => {
-    if (!activePath) return;
-    if (!githubToken) {
-      toast.error('Please connect your GitHub account first');
-      return;
-    }
-    setIsPulling(true);
-    try {
-      const data = await apiCall(`/api/workspace/${encodePath(activePath)}/git/pull`, {
-        method: 'POST',
-        body: { token: githubToken },
-      });
-      
-      if (data.message) {
-        toast.info(data.message);
-      } else {
-        toast.success('Successfully retrieved latest from GitHub');
-      }
-      
-      // Small delay to ensure FS is updated
-      setTimeout(() => {
-        fetchFiles(activePath);
-        fetchGitStatus(activePath);
-        if (activeFile) {
-          fetchFileContent(activePath, activeFile);
-        }
-      }, 500);
-    } catch (error: any) {
-      toast.error(`Failed to pull: ${error.message}`);
-      console.error(error);
-    } finally {
-      setIsPulling(false);
-    }
-  };
-
-  const confirmDeleteFile = (filename: string) => {
-    setFileToDelete(filename);
-    setIsDeleteConfirmOpen(true);
-  };
-
-  const performDeleteFile = async () => {
-    if (!activePath || !fileToDelete) return;
-    try {
-      await apiCall(`/api/workspace/${encodePath(activePath)}/files/${fileToDelete}`, { method: 'DELETE' });
-      fetchFiles(activePath);
-      if (activeFile === fileToDelete) {
-        setActiveFile(null);
-        setBlocks([]);
-      }
-      toast.success('File deleted');
-    } catch (error) {
-      toast.error('Failed to delete file');
-    } finally {
-      setIsDeleteConfirmOpen(false);
-      setFileToDelete(null);
-    }
-  };
 
   return (
     <TooltipProvider>
@@ -673,7 +374,7 @@ export default function App() {
           onOpenChange={setIsSettingsOpen}
           settings={settings}
           setSettings={setSettings}
-          onSave={handleUpdateSettings}
+          onSave={() => handleUpdateSettings(fetchFiles, activePath)}
         />
 
         {/* Workspace Picker Dialog */}
