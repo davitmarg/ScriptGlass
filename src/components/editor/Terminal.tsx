@@ -3,20 +3,15 @@ import { Trash2, ChevronLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiCall } from '@/src/lib/platform';
 import { TerminalOutput } from '@/src/types';
+import { useApp } from '@/src/contexts/AppContext';
 
-interface TerminalProps {
-  isTerminalOpen: boolean;
-  setIsTerminalOpen: (open: boolean) => void;
-  activePath: string | null;
-  fetchGitStatus: (path: string) => Promise<void>;
-}
-
-export const Terminal: React.FC<TerminalProps> = ({
-  isTerminalOpen,
-  setIsTerminalOpen,
-  activePath,
-  fetchGitStatus,
-}) => {
+export const Terminal: React.FC = () => {
+  const {
+    isTerminalOpen,
+    setIsTerminalOpen,
+    activePath,
+    fetchGitStatus,
+  } = useApp();
   const [terminalOutput, setTerminalOutput] = useState<TerminalOutput[]>([]);
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalHistory, setTerminalHistory] = useState<string[]>([]);

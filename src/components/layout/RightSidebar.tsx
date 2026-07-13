@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Type, 
   List, 
@@ -15,57 +15,35 @@ import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { BlockType, ScriptBlock } from '@/src/types';
+import { useAi } from '@/src/hooks/useAi';
 
-interface RightSidebarProps {
-  isRightSidebarOpen: boolean;
-  setIsRightSidebarOpen: (open: boolean) => void;
-  activeRightTab: 'formatting' | 'outline' | 'title' | 'ai';
-  setActiveRightTab: (tab: 'formatting' | 'outline' | 'title' | 'ai') => void;
-  activeType: BlockType;
-  setActiveType: (type: BlockType) => void;
-  applyFormat: (type: BlockType) => void;
-  aiSnippet: string;
-  setAiSnippet: (snippet: string) => void;
-  handleGetAiSuggestions: () => void;
-  isAiLoading: boolean;
-  aiOptions: string[];
-  copyToClipboard: (text: string, index: number) => void;
-  copiedIndex: number | null;
-  blocks: ScriptBlock[];
-  activeBlockId: string | null;
-  setActiveBlockId: (id: string | null) => void;
-  titlePage: {
-    title: string;
-    credit: string;
-    author: string;
-    source: string;
-    notes: string;
-    contact: string;
-  };
-  setTitlePage: (page: any) => void;
-}
+import { useApp } from '@/src/contexts/AppContext';
 
-export const RightSidebar: React.FC<RightSidebarProps> = ({
-  isRightSidebarOpen,
-  setIsRightSidebarOpen,
-  activeRightTab,
-  setActiveRightTab,
-  activeType,
-  setActiveType,
-  applyFormat,
-  aiSnippet,
-  setAiSnippet,
-  handleGetAiSuggestions,
-  isAiLoading,
-  aiOptions,
-  copyToClipboard,
-  copiedIndex,
-  blocks,
-  activeBlockId,
-  setActiveBlockId,
-  titlePage,
-  setTitlePage,
-}) => {
+export const RightSidebar: React.FC = () => {
+  const {
+    activeType,
+    setActiveType,
+    applyFormat,
+    blocks,
+    activeBlockId,
+    setActiveBlockId,
+    titlePage,
+    setTitlePage,
+    settings,
+    setIsSettingsOpen,
+  } = useApp();
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [activeRightTab, setActiveRightTab] = useState<'formatting' | 'outline' | 'title' | 'ai'>('formatting');
+
+  const {
+    aiSnippet,
+    setAiSnippet,
+    aiOptions,
+    isAiLoading,
+    copiedIndex,
+    handleGetAiSuggestions,
+    copyToClipboard,
+  } = useAi(settings, setIsSettingsOpen);
   return (
     <>
       {/* Right Sidebar Panel */}

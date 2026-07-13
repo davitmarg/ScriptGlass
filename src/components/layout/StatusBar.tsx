@@ -1,28 +1,18 @@
 import React from 'react';
 import { GitBranch } from 'lucide-react';
-import { GitStatus } from '@/src/types';
+import { useApp } from '@/src/contexts/AppContext';
 
-interface StatusBarProps {
-  gitStatus: GitStatus | null;
-  isGitHubConnected: boolean;
-  jumpPageInput: string;
-  setJumpPageInput: (val: string) => void;
-  currentPage: number;
-  handleJumpToPage: () => void;
-  pageCount: number;
-  wordCount: number;
-}
-
-export const StatusBar: React.FC<StatusBarProps> = ({
-  gitStatus,
-  isGitHubConnected,
-  jumpPageInput,
-  setJumpPageInput,
-  currentPage,
-  handleJumpToPage,
-  pageCount,
-  wordCount,
-}) => {
+export const StatusBar: React.FC = () => {
+  const {
+    gitStatus,
+    isGitHubConnected,
+    jumpPageInput,
+    setJumpPageInput,
+    currentPage,
+    handleJumpToPage,
+    pageCount,
+    wordCount,
+  } = useApp();
   return (
     <footer className="h-[28px] glass-panel border-t flex items-center justify-between px-4 text-[11px] text-foreground/60 shrink-0">
       <div className="flex items-center gap-5">

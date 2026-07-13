@@ -4,61 +4,56 @@ import { Loader2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BlockType, ScriptBlock } from '@/src/types';
 
-interface EditorCanvasProps {
-  editorRef: React.RefObject<HTMLDivElement | null>;
-  activePath: string | null;
-  projectKey: number;
-  zoom: number;
-  isInitialLoading: boolean;
-  activeFile: string | null;
-  syncTimerRef: React.RefObject<ReturnType<typeof setTimeout> | null>;
-  showAutocomplete: boolean;
-  setShowAutocomplete: (show: boolean) => void;
-  activeLineRect: DOMRect | null;
-  autocompleteList: string[];
-  autocompleteIndex: number;
-  setAutocompleteIndex: React.Dispatch<React.SetStateAction<number>> | ((val: number | ((prev: number) => number)) => void);
-  updateFormatting: (immediate?: boolean) => ScriptBlock[];
-  setHasUnsavedChanges: (hasChanges: boolean) => void;
-  updateActiveTypeFromSelection: () => void;
-  setBlocks: (blocks: ScriptBlock[]) => void;
-  saveToHistory: (blocks: ScriptBlock[]) => void;
-  handlePaste: (e: any) => void;
-  handleSave: () => void;
-  undo: () => void;
-  redo: () => void;
-  setActiveType: (type: BlockType) => void;
-  handleAutocompleteSelect: (value: string) => void;
-  setIsNewScriptOpen: (open: boolean) => void;
-}
+import { useApp } from '@/src/contexts/AppContext';
 
-export const EditorCanvas: React.FC<EditorCanvasProps> = ({
-  editorRef,
-  activePath,
-  projectKey,
-  zoom,
-  isInitialLoading,
-  activeFile,
-  syncTimerRef,
-  showAutocomplete,
-  setShowAutocomplete,
-  activeLineRect,
-  autocompleteList,
-  autocompleteIndex,
-  setAutocompleteIndex,
-  updateFormatting,
-  setHasUnsavedChanges,
-  updateActiveTypeFromSelection,
-  setBlocks,
-  saveToHistory,
-  handlePaste,
-  handleSave,
-  undo,
-  redo,
-  setActiveType,
-  handleAutocompleteSelect,
-  setIsNewScriptOpen,
-}) => {
+export const EditorCanvas: React.FC = () => {
+  const {
+    editorRef,
+    activePath,
+    projectKey,
+    isInitialLoading,
+    activeFile,
+    syncTimerRef,
+    showAutocomplete,
+    setShowAutocomplete,
+    activeLineRect,
+    autocompleteList,
+    autocompleteIndex,
+    setAutocompleteIndex,
+    updateFormatting,
+    setHasUnsavedChanges,
+    updateActiveTypeFromSelection,
+    setBlocks,
+    saveToHistory,
+    handlePaste,
+    handleSave,
+    undo,
+    redo,
+    setActiveType,
+    handleAutocompleteSelect,
+    setIsNewScriptOpen,
+  } = useApp();
+  const [zoom, setZoom] = React.useState(1);
+
+  React.useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.05 : 0.05;
+        setZoom(prev => Math.min(Math.max(prev + delta, 0.5), 2));
+      }
+    };
+    
+    const editorContainer = document.getElementById('editor-container');
+    if (editorContainer) {
+      editorContainer.addEventListener('wheel', handleWheel, { passive: false });
+    }
+    return () => {
+      if (editorContainer) {
+        editorContainer.removeEventListener('wheel', handleWheel);
+      }
+    };
+  }, []);
   return (
     <>
       <main 

@@ -2,24 +2,18 @@ import React from 'react';
 import { Download, Minus, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { isDesktop } from '@/src/lib/platform';
+import { exportToPDF } from '@/src/lib/pdf-exporter';
+import { useApp } from '@/src/contexts/AppContext';
 
-interface TitleBarProps {
-  activePath: string | null;
-  activeFile: string | null;
-  hasUnsavedChanges: boolean;
-  exportToPDF: () => void;
-  hasBlocks: boolean;
-  getBasename: (path: string | null) => string;
-}
-
-export const TitleBar: React.FC<TitleBarProps> = ({
-  activePath,
-  activeFile,
-  hasUnsavedChanges,
-  exportToPDF,
-  hasBlocks,
-  getBasename,
-}) => {
+export const TitleBar: React.FC = () => {
+  const {
+    activePath,
+    activeFile,
+    hasUnsavedChanges,
+    blocks,
+    titlePage,
+    getBasename,
+  } = useApp();
   return (
     <div 
       className="h-[38px] glass-panel border-b flex items-center px-4 shrink-0 select-none z-50 overflow-hidden" 
@@ -67,8 +61,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           variant="ghost" 
           size="sm" 
           className="h-7 text-[10px] uppercase tracking-widest font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 gap-2 mr-2"
-          onClick={exportToPDF}
-          disabled={!activeFile || !hasBlocks}
+          onClick={() => exportToPDF(blocks, titlePage, activeFile)}
+          disabled={!activeFile || blocks.length === 0}
         >
           <Download className="w-3.5 h-3.5" />
           Export PDF

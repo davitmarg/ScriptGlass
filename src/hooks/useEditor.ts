@@ -40,6 +40,14 @@ export const useEditor = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [jumpPageInput, setJumpPageInput] = useState('1');
   const [isEditorReady, setIsEditorReady] = useState(false);
+  const [titlePage, setTitlePage] = useState({
+    title: '',
+    credit: 'written by',
+    author: '',
+    source: '',
+    notes: '',
+    contact: ''
+  });
 
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const [autocompleteList, setAutocompleteList] = useState<string[]>([]);
@@ -705,6 +713,14 @@ export const useEditor = ({
     setActiveType('scene');
     setHistory([{ blocks: initialBlocks, selection: { blockId: id, offset: 0 } }]);
     setHistoryIndex(0);
+    setTitlePage({
+      title: '',
+      credit: 'written by',
+      author: '',
+      source: '',
+      notes: '',
+      contact: ''
+    });
   }, []);
 
   const fetchFileContent = useCallback(async (absPath: string, filename: string) => {
@@ -828,6 +844,16 @@ export const useEditor = ({
       localStorage.setItem(`sg_last_file_${activePath}`, activeFile);
       fetchFileContent(activePath, activeFile);
       setIsEditorReady(false);
+    } else {
+      setBlocks([]);
+      setTitlePage({
+        title: '',
+        credit: 'written by',
+        author: '',
+        source: '',
+        notes: '',
+        contact: ''
+      });
     }
   }, [activePath, activeFile, projectKey, fetchFileContent]);
 
@@ -872,5 +898,7 @@ export const useEditor = ({
     handleSave,
     initializeNewScript,
     fetchFileContent,
+    titlePage,
+    setTitlePage,
   };
 };
