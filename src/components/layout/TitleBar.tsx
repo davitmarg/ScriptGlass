@@ -14,26 +14,20 @@ export const TitleBar: React.FC = () => {
     titlePage,
     getBasename,
   } = useApp();
+  const isMac = typeof window !== 'undefined' && /mac/i.test(navigator.userAgent || navigator.platform || '');
+  const leftPadding = (isDesktop() && isMac) ? 'pl-[80px] pr-4' : 'px-4';
+
   return (
     <div 
-      className="h-[38px] glass-panel border-b flex items-center px-4 shrink-0 select-none z-50 overflow-hidden" 
+      className={`h-[38px] glass-panel border-b flex items-center ${leftPadding} shrink-0 select-none z-50 overflow-hidden`} 
       style={{ WebkitAppRegion: 'drag' } as any}
     >
-      {/* Mac-style Window Controls (Left) - Hidden on Windows Desktop */}
-      {(!navigator.platform.includes('Win') || !isDesktop()) && (
-        <div className="flex gap-2 mr-6 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as any}>
-          <button 
-            onClick={() => isDesktop() && (window as any).electronAPI.close()}
-            className={`w-3 h-3 rounded-full transition-colors ${isDesktop() ? 'bg-red-400/80 hover:bg-red-500 cursor-pointer' : 'bg-indigo-900/10'}`} 
-          />
-          <button 
-            onClick={() => isDesktop() && (window as any).electronAPI.minimize()}
-            className={`w-3 h-3 rounded-full transition-colors ${isDesktop() ? 'bg-amber-400/80 hover:bg-amber-500 cursor-pointer' : 'bg-indigo-900/10'}`} 
-          />
-          <button 
-            onClick={() => isDesktop() && (window as any).electronAPI.maximize()}
-            className={`w-3 h-3 rounded-full transition-colors ${isDesktop() ? 'bg-emerald-400/80 hover:bg-emerald-500 cursor-pointer' : 'bg-indigo-900/10'}`} 
-          />
+      {/* Mac-style Window Controls (Left) - Purely decorative in Web Browser mode */}
+      {!isDesktop() && isMac && (
+        <div className="flex gap-1.5 mr-4 shrink-0">
+          <span className="w-3 h-3 rounded-full bg-red-400/40" />
+          <span className="w-3 h-3 rounded-full bg-amber-400/40" />
+          <span className="w-3 h-3 rounded-full bg-emerald-400/40" />
         </div>
       )}
 

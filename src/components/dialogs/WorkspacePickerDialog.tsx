@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FolderBrowserDialog } from '@/src/components/dialogs/FolderBrowserDialog';
 import { useApp } from '@/src/contexts/AppContext';
+import { isDesktop } from '@/src/lib/platform';
 
 export const WorkspacePickerDialog: React.FC = () => {
   const {
@@ -35,9 +36,22 @@ export const WorkspacePickerDialog: React.FC = () => {
     fetchBrowseData,
   } = useApp();
 
-  const handleOpenBrowserLocal = () => {
-    setIsBrowserOpen(true);
-    fetchBrowseData(workspaceData.path);
+  const handleOpenBrowserLocal = async () => {
+    if (isDesktop()) {
+      try {
+        const response = await (window as any).electronAPI.invoke('/api/browse/select', {
+          defaultPath: workspaceData.path || undefined
+        });
+        if (response && !response.canceled && response.path) {
+          setWorkspaceData({ ...workspaceData, path: response.path });
+        }
+      } catch (err) {
+        console.error('Failed to open native folder picker:', err);
+      }
+    } else {
+      setIsBrowserOpen(true);
+      fetchBrowseData(workspaceData.path);
+    }
   };
 
   return (

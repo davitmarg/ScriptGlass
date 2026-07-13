@@ -171,6 +171,27 @@ ipcMain.handle('/api/browse', async (event, params) => {
   }
 });
 
+ipcMain.handle('/api/browse/select', async (event, options = {}) => {
+  try {
+    const { dialog, BrowserWindow } = require('electron');
+    const win = BrowserWindow.getFocusedWindow();
+    
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Select Workspace Directory',
+      defaultPath: options.defaultPath || undefined,
+      properties: ['openDirectory', 'createDirectory']
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { canceled: true };
+    }
+
+    return { path: result.filePaths[0] };
+  } catch (e) {
+    return { error: String(e) };
+  }
+});
+
 ipcMain.handle('/api/workspace/files', async (event, params) => {
   try {
     const encodedPath = getEncodedPathFromUrl(params.endpoint);

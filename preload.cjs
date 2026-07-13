@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       '/api/settings',
       '/api/workspace/open',
       '/api/browse',
+      '/api/browse/select',
       '/api/terminal/exec',
       '/api/auth/github/url'
     ];
