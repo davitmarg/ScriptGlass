@@ -244,11 +244,11 @@ const OAUTH_PORT = 4567;
 const OAUTH_HOST = '127.0.0.1'; // Use explicit IPv4 to avoid localhost resolution issues
 
 ipcMain.handle('/api/auth/github/url', async () => {
-  const client_id = process.env.GITHUB_CLIENT_ID;
+  const client_id = process.env.ELECTRON_GITHUB_CLIENT_ID || process.env.GITHUB_CLIENT_ID;
   const redirect_uri = `http://${OAUTH_HOST}:${OAUTH_PORT}/callback`;
   
   if (!client_id) {
-    console.error('CRITICAL: GITHUB_CLIENT_ID is missing from environment. OAuth will fail.');
+    console.error('CRITICAL: GITHUB_CLIENT_ID (or ELECTRON_GITHUB_CLIENT_ID) is missing from environment. OAuth will fail.');
   }
 
   return { 
@@ -268,14 +268,14 @@ ipcMain.on('github-oauth-start', (event, url) => {
     
     if (urlObj.pathname === '/callback') {
       const code = urlObj.searchParams.get('code');
-      const client_id = process.env.GITHUB_CLIENT_ID;
-      const client_secret = process.env.GITHUB_CLIENT_SECRET;
+      const client_id = process.env.ELECTRON_GITHUB_CLIENT_ID || process.env.GITHUB_CLIENT_ID;
+      const client_secret = process.env.ELECTRON_GITHUB_CLIENT_SECRET || process.env.GITHUB_CLIENT_SECRET;
 
       console.log(`OAuth Callback received. Exchanging code for token...`);
       
       try {
         if (!client_secret) {
-          throw new Error('GITHUB_CLIENT_SECRET is not set. Token exchange cannot proceed.');
+          throw new Error('GITHUB_CLIENT_SECRET (or ELECTRON_GITHUB_CLIENT_SECRET) is not set. Token exchange cannot proceed.');
         }
 
         const response = await axios.post('https://github.com/login/oauth/access_token', {
