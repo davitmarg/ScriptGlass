@@ -23,7 +23,7 @@ export const WorkspacePickerDialog: React.FC = () => {
     recentFolders,
     getBasename,
     settings,
-    onOpenWorkspace,
+    handleOpenWorkspace,
 
     // FolderBrowserDialog props
     isBrowserOpen,
@@ -124,7 +124,7 @@ export const WorkspacePickerDialog: React.FC = () => {
                           key={p}
                           onClick={() => {
                             setWorkspaceData({ ...workspaceData, path: p, type: 'open' });
-                            onOpenWorkspace(p);
+                            handleOpenWorkspace(p);
                           }}
                           className="text-left text-xs px-2 py-1.5 rounded hover:bg-secondary flex items-center gap-2 group overflow-hidden transition-colors"
                           title={p}
@@ -154,7 +154,7 @@ export const WorkspacePickerDialog: React.FC = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsWorkspacePickerOpen(false)}>Cancel</Button>
-            <Button onClick={() => onOpenWorkspace()}>
+            <Button onClick={() => handleOpenWorkspace()}>
               {workspaceData.type === 'clone' ? 'Clone & Open' : 
                workspaceData.type === 'create' ? 'Create & Open' : 'Open Folder'}
             </Button>
