@@ -62,7 +62,21 @@ async function startServer() {
         }
 
         try {
-          await simpleGit().clone(authenticatedUrl, folderPath);
+          await simpleGit({
+            unsafe: {
+              allowUnsafeCredentialHelper: true
+            }
+          } as any).clone(authenticatedUrl, folderPath);
+          try {
+            await simpleGit({
+              baseDir: folderPath,
+              unsafe: {
+                allowUnsafeCredentialHelper: true
+              }
+            } as any).remote(['set-url', 'origin', cloneUrl]);
+          } catch (remoteErr) {
+            console.error("Failed to clean cloned remote URL:", remoteErr);
+          }
         } catch (error: any) {
           if (error.message.includes("could not read Username") || error.message.includes("Authentication failed")) {
             throw new Error("Authentication failed. Please check your GitHub token in Settings.");
@@ -216,7 +230,8 @@ async function startServer() {
   app.get("/api/auth/github/url", (req, res) => {
     const client_id = process.env.GITHUB_CLIENT_ID;
     if (!client_id) return res.status(500).json({ error: "GITHUB_CLIENT_ID missing" });
-    const redirect_uri = `${process.env.APP_URL}/auth/github/callback`;
+    const baseUrl = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
+    const redirect_uri = `${baseUrl}/auth/github/callback`;
     const url = `https://github.com/login/oauth/authorize?client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=repo,user`;
     res.json({ url });
   });

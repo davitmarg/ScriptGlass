@@ -20,6 +20,8 @@ async function build() {
       define: {
         'process.env.GITHUB_CLIENT_ID': JSON.stringify(process.env.GITHUB_CLIENT_ID || ''),
         'process.env.GITHUB_CLIENT_SECRET': JSON.stringify(process.env.GITHUB_CLIENT_SECRET || ''),
+        'process.env.ELECTRON_GITHUB_CLIENT_ID': JSON.stringify(process.env.ELECTRON_GITHUB_CLIENT_ID || ''),
+        'process.env.ELECTRON_GITHUB_CLIENT_SECRET': JSON.stringify(process.env.ELECTRON_GITHUB_CLIENT_SECRET || ''),
         'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY || ''),
       }
     });

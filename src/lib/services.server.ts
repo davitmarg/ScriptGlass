@@ -90,7 +90,12 @@ export class GitManager {
 
   constructor(absPath: string) {
     this.absPath = absPath;
-    this.git = simpleGit(this.absPath);
+    this.git = simpleGit({
+      baseDir: this.absPath,
+      unsafe: {
+        allowUnsafeCredentialHelper: true
+      }
+    } as any);
   }
 
   async getGitHubUser(token: string): Promise<{ login: string; name: string; email: string } | null> {
@@ -173,22 +178,34 @@ export class GitManager {
   }
 
   async commit(message: string, token: string) {
-    // Ensure user identity is set
+    let commitEnv: Record<string, string> | undefined = undefined;
     try {
       const config = await this.git.listConfig();
-      if (!config.all['user.name'] || !config.all['user.email'] || config.all['user.email'].includes('root@localhost')) {
+      const hasName = !!config.all['user.name'];
+      const hasEmail = !!config.all['user.email'] && !config.all['user.email'].includes('root@localhost');
+      
+      if (!hasName || !hasEmail) {
         const user = await this.getGitHubUser(token);
         if (user) {
-          await this.git.addConfig('user.name', user.name);
-          await this.git.addConfig('user.email', user.email);
+          commitEnv = {
+            ...process.env,
+            GIT_AUTHOR_NAME: user.name,
+            GIT_AUTHOR_EMAIL: user.email,
+            GIT_COMMITTER_NAME: user.name,
+            GIT_COMMITTER_EMAIL: user.email
+          };
         }
       }
     } catch (e) {
-      console.error("Failed to set git config:", e);
+      console.error("Failed to check git config:", e);
     }
 
     await this.git.add(".");
-    await this.git.commit(message);
+    if (commitEnv) {
+      await this.git.env(commitEnv).commit(message);
+    } else {
+      await this.git.commit(message);
+    }
   }
 
   async push(token: string, repoName: string) {
@@ -196,7 +213,6 @@ export class GitManager {
     
     // Safety check: Don't allow "undefined" as a repo name
     if (!repoName || repoName === "undefined") {
-      // Try to determine from existing remotes if possible
       try {
         const remotes = await this.git.getRemotes(true);
         const origin = remotes.find(r => r.name === 'origin');
@@ -221,11 +237,10 @@ export class GitManager {
       }
     }
 
-    const remote = `https://x-access-token:${token}@github.com/${fullRepoPath}.git`;
+    const remote = `https://github.com/${fullRepoPath}.git`;
     try {
       await this.git.addRemote("origin", remote);
     } catch (e) {
-      // remote already exists, update it just in case token changed
       await this.git.remote(['set-url', 'origin', remote]);
     }
 
@@ -234,7 +249,14 @@ export class GitManager {
     const branch = status.current || 'main';
 
     try {
-      await this.git.push("origin", branch, ["--set-upstream"]);
+      await this.git.raw([
+        '-c',
+        `credential.helper=!f() { echo username=x-access-token; echo password=${token}; }; f`,
+        'push',
+        'origin',
+        branch,
+        '--set-upstream'
+      ]);
       return { success: true };
     } catch (error: any) {
       if (error.message.includes("not found")) {
@@ -256,16 +278,29 @@ export class GitManager {
 
         const created = await this.createGitHubRepo(token, repoOnlyName, isOrg, orgName);
         if (created) {
-          // Retry push
-          await this.git.push("origin", branch, ["--set-upstream"]);
+          // Retry push with inline credentials helper
+          await this.git.raw([
+            '-c',
+            `credential.helper=!f() { echo username=x-access-token; echo password=${token}; }; f`,
+            'push',
+            'origin',
+            branch,
+            '--set-upstream'
+          ]);
           return { success: true };
         }
         
         throw new Error(`Repository "${fullRepoPath}" not found on GitHub and automatic creation failed. Please make sure the repository exists in your GitHub account or you have permissions to create it.`);
       }
       if (error.message.includes("does not match any")) {
-        // Fallback or handle initial push
-        await this.git.push("origin", branch);
+        // Fallback with credentials helper
+        await this.git.raw([
+          '-c',
+          `credential.helper=!f() { echo username=x-access-token; echo password=${token}; }; f`,
+          'push',
+          'origin',
+          branch
+        ]);
         return { success: true };
       }
       throw error;
@@ -300,20 +335,24 @@ export class GitManager {
       }
     }
     
-    const remote = `https://x-access-token:${token}@github.com/${fullRepoPath}.git`;
+    const remote = `https://github.com/${fullRepoPath}.git`;
     try {
       await this.git.addRemote("origin", remote);
     } catch (e) {
       await this.git.remote(["set-url", "origin", remote]);
     }
 
-    await this.git.fetch("origin");
+    // Fetch using credentials helper
+    await this.git.raw([
+      '-c',
+      `credential.helper=!f() { echo username=x-access-token; echo password=${token}; }; f`,
+      'fetch',
+      'origin'
+    ]);
     
     // Logic for branch discovery
     const remotesList = await this.git.branch(['-r']);
     if (remotesList.all.length === 0) {
-      // If no remote branches found after fetch, we might be on a brand new repo
-      // or the remote is empty.
       return { success: true, message: "No remote branches found. Repository might be empty or newly created." };
     }
 
@@ -330,7 +369,6 @@ export class GitManager {
           targetBranch = firstRemote;
           targetBranchShort = firstRemote.replace('origin/', '');
         } else {
-          // Absolute fallback if something is weird with names
           targetBranch = remotesList.all[0];
           targetBranchShort = targetBranch.replace('origin/', '');
         }
@@ -344,7 +382,6 @@ export class GitManager {
     try {
       const targetRemoteBranch = targetBranch;
       
-      // Check if HEAD points to a valid commit
       let hasHead = true;
       try {
         await this.git.revparse(['HEAD']);
@@ -353,12 +390,10 @@ export class GitManager {
       }
 
       if (hasHead && targetRemoteBranch) {
-        // Trim and validate mergeBase
         let mergeBase = await this.git.revparse(['--merge-base', 'HEAD', targetRemoteBranch]).catch(() => '');
         mergeBase = mergeBase.trim();
         
         if (mergeBase && mergeBase !== targetRemoteBranch) {
-          // Use a range string for diff to be more robust with simple-git
           const diffResult = await this.git.diff(['--name-only', `${mergeBase}...${targetRemoteBranch}`]);
           const remoteChanges = diffResult.split('\n').filter(f => f.trim());
           

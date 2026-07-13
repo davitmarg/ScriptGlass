@@ -45,8 +45,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.21",
     "cross-env": "^7.0.3",
-    "electron": "^34.5.8",
-    "electron-builder": "^25.1.8",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.0",
     "shx": "^0.4.0",
     "tailwindcss": "^4.1.14",
@@ -68,7 +68,20 @@
     ],
     "win": {
       "target": "nsis",
+      "icon": "public/electron-icons/windows/icon.ico",
       "artifactName": "ScriptGlass-Setup.exe"
+    },
+    "mac": {
+      "icon": "public/electron-icons/macos/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
     },
     "asar": true
   }

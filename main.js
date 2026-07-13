@@ -136,7 +136,21 @@ ipcMain.handle('/api/workspace/open', async (event, { folderPath, type, url }) =
         u.password = settings.githubToken;
         authenticatedUrl = u.toString();
       }
-      await simpleGit().clone(authenticatedUrl, folderPath);
+      await simpleGit({
+        unsafe: {
+          allowUnsafeCredentialHelper: true
+        }
+      }).clone(authenticatedUrl, folderPath);
+      try {
+        await simpleGit({
+          baseDir: folderPath,
+          unsafe: {
+            allowUnsafeCredentialHelper: true
+          }
+        }).remote(['set-url', 'origin', url]);
+      } catch (remoteErr) {
+        console.error("Failed to clean cloned remote URL in main.js:", remoteErr);
+      }
     } else {
       await fs.mkdir(folderPath, { recursive: true });
     }
@@ -152,6 +166,27 @@ ipcMain.handle('/api/browse', async (event, params) => {
   try {
     const pathParam = getQueryParam(params.endpoint, 'path');
     return await browseFolders(pathParam, settings.baseDir);
+  } catch (e) {
+    return { error: String(e) };
+  }
+});
+
+ipcMain.handle('/api/browse/select', async (event, options = {}) => {
+  try {
+    const { dialog, BrowserWindow } = require('electron');
+    const win = BrowserWindow.getFocusedWindow();
+    
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Select Workspace Directory',
+      defaultPath: options.defaultPath || undefined,
+      properties: ['openDirectory', 'createDirectory']
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { canceled: true };
+    }
+
+    return { path: result.filePaths[0] };
   } catch (e) {
     return { error: String(e) };
   }
@@ -230,11 +265,11 @@ const OAUTH_PORT = 4567;
 const OAUTH_HOST = '127.0.0.1'; // Use explicit IPv4 to avoid localhost resolution issues
 
 ipcMain.handle('/api/auth/github/url', async () => {
-  const client_id = process.env.GITHUB_CLIENT_ID;
+  const client_id = process.env.ELECTRON_GITHUB_CLIENT_ID || process.env.GITHUB_CLIENT_ID;
   const redirect_uri = `http://${OAUTH_HOST}:${OAUTH_PORT}/callback`;
   
   if (!client_id) {
-    console.error('CRITICAL: GITHUB_CLIENT_ID is missing from environment. OAuth will fail.');
+    console.error('CRITICAL: GITHUB_CLIENT_ID (or ELECTRON_GITHUB_CLIENT_ID) is missing from environment. OAuth will fail.');
   }
 
   return { 
@@ -254,14 +289,14 @@ ipcMain.on('github-oauth-start', (event, url) => {
     
     if (urlObj.pathname === '/callback') {
       const code = urlObj.searchParams.get('code');
-      const client_id = process.env.GITHUB_CLIENT_ID;
-      const client_secret = process.env.GITHUB_CLIENT_SECRET;
+      const client_id = process.env.ELECTRON_GITHUB_CLIENT_ID || process.env.GITHUB_CLIENT_ID;
+      const client_secret = process.env.ELECTRON_GITHUB_CLIENT_SECRET || process.env.GITHUB_CLIENT_SECRET;
 
       console.log(`OAuth Callback received. Exchanging code for token...`);
       
       try {
         if (!client_secret) {
-          throw new Error('GITHUB_CLIENT_SECRET is not set. Token exchange cannot proceed.');
+          throw new Error('GITHUB_CLIENT_SECRET (or ELECTRON_GITHUB_CLIENT_SECRET) is not set. Token exchange cannot proceed.');
         }
 
         const response = await axios.post('https://github.com/login/oauth/access_token', {
