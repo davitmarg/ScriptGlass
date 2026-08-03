@@ -225,9 +225,9 @@ export const useEditor = ({
     });
 
     editorLines.forEach((lineEl, idx) => {
-      const text = lineEl.innerText || '';
+      const rawText = (lineEl.innerText || '').replace(/\r/g, '').replace(/\n$/, '');
       
-      const parts = text.split('\n');
+      const parts = rawText.split('\n');
       parts.forEach((part, subIdx) => {
         const content = part;
         let type: BlockType = 'action';
@@ -315,11 +315,8 @@ export const useEditor = ({
     });
 
     const hasSubLines = editorLines.some(line => {
-      const text = line.innerText;
-      // Only trigger full rebuild when there are actual multiline splits
-      // (text contains newline characters that aren't just trailing)
-      const stripped = text.replace(/\n$/, '');
-      return stripped.includes('\n');
+      const rawText = (line.innerText || '').replace(/\r/g, '').replace(/\n$/, '');
+      return rawText.includes('\n');
     });
     
     if (hasSubLines) {

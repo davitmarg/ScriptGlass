@@ -196,11 +196,16 @@ export const EditorCanvas: React.FC = () => {
                   return null;
                 };
 
-                const setLineType = (el: HTMLElement, type: BlockType) => {
+                const setLineType = (el: HTMLElement, type: BlockType, isManual = true) => {
                   el.setAttribute('data-type', type);
-                  el.setAttribute('data-manual', 'true');
+                  if (isManual) {
+                    el.setAttribute('data-manual', 'true');
+                  } else {
+                    el.removeAttribute('data-manual');
+                  }
                   setActiveType(type);
-                  updateFormatting(true);
+                  const newBlocks = updateFormatting(true);
+                  setBlocks(newBlocks);
                   updateActiveTypeFromSelection();
                 };
 
@@ -245,7 +250,7 @@ export const EditorCanvas: React.FC = () => {
                     setTimeout(() => {
                       const newLine = getCurrentLine();
                       if (newLine && newLine !== line) {
-                        setLineType(newLine, nextType);
+                        setLineType(newLine, nextType, false);
                       }
                     }, 10);
                   }
