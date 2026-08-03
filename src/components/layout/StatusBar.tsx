@@ -12,13 +12,15 @@ export const StatusBar: React.FC = () => {
     handleJumpToPage,
     pageCount,
     wordCount,
+    setIsSyncDialogOpen,
   } = useApp();
   return (
     <footer className="h-[28px] glass-panel border-t flex items-center justify-between px-4 text-[11px] text-foreground/60 shrink-0">
       <div className="flex items-center gap-5">
         <div 
-          className="flex items-center gap-1.5 text-foreground font-medium" 
+          className="flex items-center gap-1.5 text-foreground font-medium cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" 
           title={gitStatus?.isRepo ? (gitStatus.status?.files?.length > 0 ? "Uncommitted changes" : gitStatus.status?.ahead > 0 ? "Unpushed changes" : "Up to date") : "Not a git repository"}
+          onClick={() => setIsSyncDialogOpen(true)}
         >
           <GitBranch className={`w-3.5 h-3.5 ${isGitHubConnected ? (gitStatus?.isRepo ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/40') : 'text-muted-foreground/20'}`} />
           <span className="flex items-center">

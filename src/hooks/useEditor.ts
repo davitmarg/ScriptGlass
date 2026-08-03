@@ -142,14 +142,21 @@ export const useEditor = ({
     return { wordCount: words, pageCount: blocks.length === 0 ? 0 : pages };
   }, [blocks]);
 
+  const escapeHtml = useCallback((text: string): string => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }, []);
+
   const syncEditorFromBlocks = useCallback((newBlocks: ScriptBlock[]) => {
     if (editorRef.current) {
       editorRef.current.innerHTML = newBlocks.map(b => {
-        const content = b.content === '' ? '<br>' : b.content;
+        const content = b.content === '' ? '<br>' : escapeHtml(b.content);
         return `<div id="${b.id}" class="script-line script-${b.type} ${b.type === 'character' ? 'font-bold' : ''}" data-type="${b.type}">${content}</div>`;
       }).join('');
     }
-  }, [editorRef]);
+  }, [editorRef, escapeHtml]);
 
   const saveToHistory = useCallback((newBlocks: ScriptBlock[]) => {
     const sel = window.getSelection();
@@ -168,16 +175,17 @@ export const useEditor = ({
     }
 
     setHistory(prev => {
-      const newHistory = prev.slice(0, historyIndex + 1);
+      const currentIndex = prev.length > 0 ? prev.length - 1 : 0;
+      const newHistory = prev.slice(0, currentIndex + 1);
       newHistory.push({ blocks: JSON.parse(JSON.stringify(newBlocks)), selection: { blockId, offset } });
       if (newHistory.length > 50) newHistory.shift();
       return newHistory;
     });
     setHistoryIndex(prev => {
-      const size = Math.min(50, historyIndex + 2);
+      const size = Math.min(50, prev + 2);
       return size - 1;
     });
-  }, [editorRef, historyIndex]);
+  }, [editorRef]);
 
   const updateFormatting = useCallback((forceSyncState = false) => {
     if (!editorRef.current) return [];
@@ -287,9 +295,12 @@ export const useEditor = ({
           }
         }
 
-        const manualType = lineEl.getAttribute('data-type') as BlockType;
-        if (manualType) {
-          type = manualType;
+        const isManual = lineEl.getAttribute('data-manual') === 'true';
+        if (isManual) {
+          const manualType = lineEl.getAttribute('data-type') as BlockType;
+          if (manualType) {
+            type = manualType;
+          }
         }
 
         let id = subIdx === 0 ? lineEl.id : '';
@@ -305,7 +316,10 @@ export const useEditor = ({
 
     const hasSubLines = editorLines.some(line => {
       const text = line.innerText;
-      return text.length > 0 && text.includes('\n', 0) && text.lastIndexOf('\n') < text.length - 1;
+      // Only trigger full rebuild when there are actual multiline splits
+      // (text contains newline characters that aren't just trailing)
+      const stripped = text.replace(/\n$/, '');
+      return stripped.includes('\n');
     });
     
     if (hasSubLines) {
@@ -463,6 +477,7 @@ export const useEditor = ({
 
     if (el) {
       el.setAttribute('data-type', type);
+      el.setAttribute('data-manual', 'true');
       setActiveType(type);
       const newBlocks = updateFormatting();
       saveToHistory(newBlocks);

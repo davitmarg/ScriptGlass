@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { apiCall } from '@/src/lib/platform';
 
@@ -46,14 +46,14 @@ export const useWorkspace = (
   const [isPulling, setIsPulling] = useState(false);
   const [syncCommitMessage, setSyncCommitMessage] = useState('');
 
-  const fetchGitStatus = async (absPath: string) => {
+  const fetchGitStatus = useCallback(async (absPath: string) => {
     try {
       const data = await apiCall(`/api/workspace/${encodePath(absPath)}/git/status`);
       setGitStatus(data);
     } catch (error) {
       console.error('Failed to fetch git status');
     }
-  };
+  }, []);
 
   const fetchFiles = async (absPath: string) => {
     setIsFilesLoading(true);

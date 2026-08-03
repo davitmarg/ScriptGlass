@@ -165,7 +165,6 @@ export const useSettings = () => {
     if (settings.theme === 'system') {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
       const handleChange = () => applyTheme();
-      mediaQuery.addEventListener('change', mediaQuery.matches ? handleChange : handleChange); // trigger update
       mediaQuery.addEventListener('change', handleChange);
       return () => mediaQuery.removeEventListener('change', handleChange);
     }

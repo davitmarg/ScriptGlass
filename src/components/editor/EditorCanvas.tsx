@@ -146,12 +146,12 @@ export const EditorCanvas: React.FC = () => {
               className="outline-none min-h-full w-full p-16 md:p-20"
               onInput={() => {
                 const newBlocks = updateFormatting();
+                setBlocks(newBlocks);
                 setHasUnsavedChanges(true);
                 updateActiveTypeFromSelection();
                 
                 if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
                 syncTimerRef.current = setTimeout(() => {
-                  setBlocks(newBlocks);
                   saveToHistory(newBlocks);
                 }, 300);
               }}
@@ -198,6 +198,7 @@ export const EditorCanvas: React.FC = () => {
 
                 const setLineType = (el: HTMLElement, type: BlockType) => {
                   el.setAttribute('data-type', type);
+                  el.setAttribute('data-manual', 'true');
                   setActiveType(type);
                   updateFormatting(true);
                   updateActiveTypeFromSelection();
