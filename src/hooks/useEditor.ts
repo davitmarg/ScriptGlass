@@ -142,14 +142,21 @@ export const useEditor = ({
     return { wordCount: words, pageCount: blocks.length === 0 ? 0 : pages };
   }, [blocks]);
 
+  const escapeHtml = useCallback((text: string): string => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }, []);
+
   const syncEditorFromBlocks = useCallback((newBlocks: ScriptBlock[]) => {
     if (editorRef.current) {
       editorRef.current.innerHTML = newBlocks.map(b => {
-        const content = b.content === '' ? '<br>' : b.content;
+        const content = b.content === '' ? '<br>' : escapeHtml(b.content);
         return `<div id="${b.id}" class="script-line script-${b.type} ${b.type === 'character' ? 'font-bold' : ''}" data-type="${b.type}">${content}</div>`;
       }).join('');
     }
-  }, [editorRef]);
+  }, [editorRef, escapeHtml]);
 
   const saveToHistory = useCallback((newBlocks: ScriptBlock[]) => {
     const sel = window.getSelection();
@@ -168,16 +175,17 @@ export const useEditor = ({
     }
 
     setHistory(prev => {
-      const newHistory = prev.slice(0, historyIndex + 1);
+      const currentIndex = prev.length > 0 ? prev.length - 1 : 0;
+      const newHistory = prev.slice(0, currentIndex + 1);
       newHistory.push({ blocks: JSON.parse(JSON.stringify(newBlocks)), selection: { blockId, offset } });
       if (newHistory.length > 50) newHistory.shift();
       return newHistory;
     });
     setHistoryIndex(prev => {
-      const size = Math.min(50, historyIndex + 2);
+      const size = Math.min(50, prev + 2);
       return size - 1;
     });
-  }, [editorRef, historyIndex]);
+  }, [editorRef]);
 
   const updateFormatting = useCallback((forceSyncState = false) => {
     if (!editorRef.current) return [];
@@ -217,49 +225,19 @@ export const useEditor = ({
     });
 
     editorLines.forEach((lineEl, idx) => {
-      const text = lineEl.innerText || '';
+      const content = (lineEl.innerText || '').replace(/\r/g, '').replace(/\n$/, '');
+      let type: BlockType = 'action';
       
-      const parts = text.split('\n');
-      parts.forEach((part, subIdx) => {
-        const content = part;
-        let type: BlockType = 'action';
-        
-        const trimmed = content.trim();
-        const uppercase = trimmed.toUpperCase();
-        
-        if (trimmed === '') {
-          type = 'action';
-        } else if (
-          uppercase.startsWith('INT.') || 
-          uppercase.startsWith('EXT.') || 
-          uppercase.startsWith('INT/EXT') || 
-          uppercase.startsWith('I/E') || 
-          uppercase.startsWith('EST.')
-        ) {
-          type = 'scene';
-        } else if (
-          uppercase.startsWith('TO:') || 
-          uppercase.endsWith('TO:') || 
-          uppercase === 'FADE IN:' || 
-          uppercase === 'FADE OUT:' || 
-          uppercase === 'FADE TO BLACK.'
-        ) {
-          type = 'transition';
-        } else if (
-          uppercase.startsWith('ANGLE ON') || 
-          uppercase.startsWith('CLOSE UP') || 
-          uppercase.startsWith('WIDE SHOT') || 
-          uppercase.startsWith('POV') || 
-          uppercase.startsWith('CAMERA')
-        ) {
-          type = 'shot';
-        } else if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
-          type = 'parenthetical';
-        } else if (trimmed === trimmed.toUpperCase() && !/^\d+$/.test(trimmed) && trimmed.length > 1) {
-          type = 'character';
+      const trimmed = content.trim();
+      const uppercase = trimmed.toUpperCase();
+      const currentDataType = lineEl.getAttribute('data-type') as BlockType;
+      const isManual = lineEl.getAttribute('data-manual') === 'true';
+
+      if (trimmed === '') {
+        if (currentDataType) {
+          type = currentDataType;
         } else {
           type = 'action';
-          
           if (idx > 0) {
             let j = idx - 1;
             while (j >= 0 && editorLines[j].innerText.trim() === '') {
@@ -272,105 +250,77 @@ export const useEditor = ({
               }
             }
           }
-          
-          if (type === 'action' && newBlocks.length > 0) {
-            let j = newBlocks.length - 1;
-            while (j >= 0 && newBlocks[j].content.trim() === '') {
-              j--;
-            }
-            if (j >= 0) {
-              const prev = newBlocks[j];
-              if ((prev.type === 'character' || prev.type === 'parenthetical' || prev.type === 'dialogue') && prev.content.trim() !== '') {
-                type = 'dialogue';
-              }
-            }
-          }
         }
-
-        const manualType = lineEl.getAttribute('data-type') as BlockType;
-        if (manualType) {
-          type = manualType;
-        }
-
-        let id = subIdx === 0 ? lineEl.id : '';
-        if (!id || seenIds.has(id)) {
-          id = 'block-' + Math.random().toString(36).substring(2, 11);
-          if (subIdx === 0) lineEl.id = id;
-        }
-        seenIds.add(id);
+      } else if (isManual && currentDataType) {
+        type = currentDataType;
+      } else if (
+        uppercase.startsWith('INT.') || 
+        uppercase.startsWith('EXT.') || 
+        uppercase.startsWith('INT/EXT') || 
+        uppercase.startsWith('I/E') || 
+        uppercase.startsWith('EST.')
+      ) {
+        type = 'scene';
+      } else if (
+        uppercase.startsWith('TO:') || 
+        uppercase.endsWith('TO:') || 
+        uppercase === 'FADE IN:' || 
+        uppercase === 'FADE OUT:' || 
+        uppercase === 'FADE TO BLACK.'
+      ) {
+        type = 'transition';
+      } else if (
+        uppercase.startsWith('ANGLE ON') || 
+        uppercase.startsWith('CLOSE UP') || 
+        uppercase.startsWith('WIDE SHOT') || 
+        uppercase.startsWith('POV') || 
+        uppercase.startsWith('CAMERA')
+      ) {
+        type = 'shot';
+      } else if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+        type = 'parenthetical';
+      } else if (trimmed === trimmed.toUpperCase() && !/^\d+$/.test(trimmed) && trimmed.length > 1) {
+        type = 'character';
+      } else {
+        type = 'action';
         
-        newBlocks.push({ id, type, content });
-      });
-    });
+        if (idx > 0) {
+          let j = idx - 1;
+          while (j >= 0 && editorLines[j].innerText.trim() === '') {
+            j--;
+          }
+          if (j >= 0) {
+            const prevType = editorLines[j].getAttribute('data-type');
+            if (prevType === 'character' || prevType === 'parenthetical') {
+              type = 'dialogue';
+            }
+          }
+        }
+      }
 
-    const hasSubLines = editorLines.some(line => {
-      const text = line.innerText;
-      return text.length > 0 && text.includes('\n', 0) && text.lastIndexOf('\n') < text.length - 1;
-    });
-    
-    if (hasSubLines) {
-      const selection = window.getSelection();
-      let offset = 0;
-      let focusNodeId = '';
+      let id = lineEl.id;
+      if (!id || seenIds.has(id)) {
+        id = 'block-' + Math.random().toString(36).substring(2, 11);
+        lineEl.id = id;
+      }
+      seenIds.add(id);
       
-      if (selection && selection.anchorNode) {
-        let currentNode: Node | null = selection.anchorNode;
-        while (currentNode && !(currentNode instanceof HTMLElement && currentNode.id)) {
-          currentNode = currentNode.parentNode;
+      newBlocks.push({ id, type, content });
+    });
+
+    editorLines.forEach((lineEl, i) => {
+      const block = newBlocks[i];
+      if (block) {
+        const type = block.type;
+        const targetClass = `script-line script-${type} ${type === 'character' ? 'font-bold' : ''}`;
+        if (lineEl.className !== targetClass) {
+          lineEl.className = targetClass;
         }
-        if (currentNode instanceof HTMLElement && currentNode.id) {
-          focusNodeId = currentNode.id;
-          offset = selection.anchorOffset;
+        if (lineEl.getAttribute('data-type') !== type) {
+          lineEl.setAttribute('data-type', type);
         }
       }
-
-      syncEditorFromBlocks(newBlocks);
-
-      if (focusNodeId) {
-        const el = document.getElementById(focusNodeId);
-        if (el) {
-          const range = document.createRange();
-          const sel = window.getSelection();
-          const node = el.firstChild || el;
-          try {
-            const finalOffset = Math.min(offset, node.textContent?.length || 0);
-            range.setStart(node, finalOffset);
-            range.collapse(true);
-            sel?.removeAllRanges();
-            sel?.addRange(range);
-          } catch(e) {
-            setTimeout(() => {
-              const retryEl = document.getElementById(focusNodeId);
-              if (retryEl) {
-                const retryNode = retryEl.firstChild || retryEl;
-                try {
-                  const retryRange = document.createRange();
-                  const retrySel = window.getSelection();
-                  retryRange.setStart(retryNode, Math.min(offset, retryNode.textContent?.length || 0));
-                  retryRange.collapse(true);
-                  retrySel?.removeAllRanges();
-                  retrySel?.addRange(retryRange);
-                } catch(e2) {}
-              }
-            }, 0);
-          }
-        }
-      }
-    } else {
-      editorLines.forEach((lineEl, i) => {
-        const block = newBlocks.find(b => b.id === lineEl.id) || newBlocks[i];
-        if (block) {
-          const type = block.type;
-          const targetClass = `script-line script-${type} ${type === 'character' ? 'font-bold' : ''}`;
-          if (lineEl.className !== targetClass) {
-            lineEl.className = targetClass;
-          }
-          if (lineEl.getAttribute('data-type') !== type) {
-            lineEl.setAttribute('data-type', type);
-          }
-        }
-      });
-    }
+    });
 
     if (forceSyncState) {
       setBlocks(newBlocks);
@@ -463,6 +413,7 @@ export const useEditor = ({
 
     if (el) {
       el.setAttribute('data-type', type);
+      el.setAttribute('data-manual', 'true');
       setActiveType(type);
       const newBlocks = updateFormatting();
       saveToHistory(newBlocks);

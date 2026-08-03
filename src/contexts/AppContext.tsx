@@ -8,6 +8,7 @@ const AppContext = createContext<any>(null);
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
   
   const editorRef = useRef<HTMLDivElement>(null);
 
@@ -87,6 +88,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsSidebarOpen,
     isTerminalOpen,
     setIsTerminalOpen,
+    isSyncDialogOpen,
+    setIsSyncDialogOpen,
     ...settingsState,
     ...workspaceState,
     ...editorState,

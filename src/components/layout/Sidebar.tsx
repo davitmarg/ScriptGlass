@@ -19,7 +19,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -58,6 +57,8 @@ export const Sidebar: React.FC = () => {
     settings,
     setSettings,
     handleUpdateSettings,
+    isSyncDialogOpen,
+    setIsSyncDialogOpen,
   } = useApp();
   return (
     <>
@@ -92,16 +93,11 @@ export const Sidebar: React.FC = () => {
           <TooltipContent side="right">Save Locally</TooltipContent>
         </Tooltip>
 
-        <Dialog>
+        <Dialog open={isSyncDialogOpen} onOpenChange={setIsSyncDialogOpen}>
           <Tooltip>
             <TooltipTrigger 
-              render={
-                <DialogTrigger 
-                  render={
-                    <button className={`transition-colors ${isSyncing ? 'text-indigo-600 dark:text-indigo-400 animate-spin' : 'text-muted-foreground/40'}`} />
-                  } 
-                />
-              }
+              className={`transition-colors ${isSyncing ? 'text-indigo-600 dark:text-indigo-400 animate-spin' : 'text-muted-foreground/40'}`}
+              onClick={() => setIsSyncDialogOpen(true)}
             >
               <CloudUpload className="w-5 h-5" />
             </TooltipTrigger>

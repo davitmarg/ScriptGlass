@@ -146,12 +146,12 @@ export const EditorCanvas: React.FC = () => {
               className="outline-none min-h-full w-full p-16 md:p-20"
               onInput={() => {
                 const newBlocks = updateFormatting();
+                setBlocks(newBlocks);
                 setHasUnsavedChanges(true);
                 updateActiveTypeFromSelection();
                 
                 if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
                 syncTimerRef.current = setTimeout(() => {
-                  setBlocks(newBlocks);
                   saveToHistory(newBlocks);
                 }, 300);
               }}
@@ -196,10 +196,39 @@ export const EditorCanvas: React.FC = () => {
                   return null;
                 };
 
-                const setLineType = (el: HTMLElement, type: BlockType) => {
+                const placeCaretAt = (node: Node, offset: number) => {
+                  const sel = window.getSelection();
+                  if (!sel) return;
+                  const range = document.createRange();
+                  
+                  let targetNode: Node = node;
+                  let targetOffset = offset;
+                  
+                  if (targetNode.nodeType !== 3 && targetNode.firstChild) {
+                    targetNode = targetNode.firstChild;
+                    targetOffset = Math.min(offset, targetNode.textContent?.length || 0);
+                  }
+                  
+                  try {
+                    range.setStart(targetNode, targetOffset);
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                  } catch (e) {
+                    if (node instanceof HTMLElement) node.focus();
+                  }
+                };
+
+                const setLineType = (el: HTMLElement, type: BlockType, isManual = true) => {
                   el.setAttribute('data-type', type);
+                  if (isManual) {
+                    el.setAttribute('data-manual', 'true');
+                  } else {
+                    el.removeAttribute('data-manual');
+                  }
                   setActiveType(type);
-                  updateFormatting(true);
+                  const newBlocks = updateFormatting(true);
+                  setBlocks(newBlocks);
                   updateActiveTypeFromSelection();
                 };
 
@@ -223,33 +252,6 @@ export const EditorCanvas: React.FC = () => {
                   }
                 }
 
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  const line = getCurrentLine();
-                  if (line) {
-                    const type = line.getAttribute('data-type') as BlockType || 'action';
-                    const text = line.textContent || '';
-
-                    if (type === 'dialogue' && text.trim() === '') {
-                      e.preventDefault();
-                      setLineType(line, 'action');
-                      return;
-                    }
-
-                    let nextType: BlockType = 'action';
-                    if (type === 'character') nextType = 'dialogue';
-                    else if (type === 'parenthetical') nextType = 'dialogue';
-                    else if (type === 'dialogue') nextType = 'action';
-                    else if (type === 'transition') nextType = 'scene';
-                    
-                    setTimeout(() => {
-                      const newLine = getCurrentLine();
-                      if (newLine && newLine !== line) {
-                        setLineType(newLine, nextType);
-                      }
-                    }, 10);
-                  }
-                }
-
                 if (showAutocomplete) {
                   if (e.key === 'ArrowDown') {
                     e.preventDefault();
@@ -269,6 +271,123 @@ export const EditorCanvas: React.FC = () => {
                   if (e.key === 'Escape') {
                     setShowAutocomplete(false);
                     return;
+                  }
+                }
+
+                // Shift + Enter: Soft line break within current block
+                if (e.key === 'Enter' && e.shiftKey) {
+                  e.preventDefault();
+                  const sel = window.getSelection();
+                  if (!sel || !sel.rangeCount) return;
+                  const range = sel.getRangeAt(0);
+                  
+                  const br = document.createElement('br');
+                  range.deleteContents();
+                  range.insertNode(br);
+                  
+                  range.setStartAfter(br);
+                  range.setEndAfter(br);
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                  
+                  const updatedBlocks = updateFormatting(true);
+                  setBlocks(updatedBlocks);
+                  setHasUnsavedChanges(true);
+                  return;
+                }
+
+                // Enter Key (no Shift): Screenplay Block Transition
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  const currentLine = getCurrentLine();
+                  if (!currentLine) return;
+
+                  const currentType = (currentLine.getAttribute('data-type') as BlockType) || 'action';
+                  const text = currentLine.textContent || '';
+                  const trimmed = text.trim();
+
+                  // Convert empty dialogue to action line
+                  if (currentType === 'dialogue' && trimmed === '') {
+                    setLineType(currentLine, 'action', true);
+                    placeCaretAt(currentLine, 0);
+                    return;
+                  }
+
+                  let nextType: BlockType = 'action';
+                  if (currentType === 'character') nextType = 'dialogue';
+                  else if (currentType === 'parenthetical') nextType = 'dialogue';
+                  else if (currentType === 'dialogue') nextType = 'action';
+                  else if (currentType === 'transition') nextType = 'scene';
+                  else if (currentType === 'scene') nextType = 'action';
+                  else nextType = 'action';
+
+                  const sel = window.getSelection();
+                  let splitOffset = text.length;
+                  if (sel && sel.rangeCount > 0 && currentLine.contains(sel.anchorNode)) {
+                    splitOffset = sel.anchorOffset;
+                  }
+
+                  const textBefore = text.slice(0, splitOffset);
+                  const textAfter = text.slice(splitOffset);
+
+                  if (textBefore.length === 0) {
+                    currentLine.innerHTML = '<br>';
+                  } else {
+                    currentLine.textContent = textBefore;
+                  }
+
+                  const newLine = document.createElement('div');
+                  const newId = 'block-' + Math.random().toString(36).substring(2, 11);
+                  newLine.id = newId;
+                  const isChar = (nextType as string) === 'character';
+                  newLine.className = `script-line script-${nextType} ${isChar ? 'font-bold' : ''}`;
+                  newLine.setAttribute('data-type', nextType);
+                  if (textAfter.length === 0) {
+                    newLine.innerHTML = '<br>';
+                  } else {
+                    newLine.textContent = textAfter;
+                  }
+
+                  if (currentLine.nextSibling) {
+                    editorRef.current!.insertBefore(newLine, currentLine.nextSibling);
+                  } else {
+                    editorRef.current!.appendChild(newLine);
+                  }
+
+                  placeCaretAt(newLine, 0);
+
+                  const updatedBlocks = updateFormatting(true);
+                  setBlocks(updatedBlocks);
+                  setHasUnsavedChanges(true);
+                  updateActiveTypeFromSelection();
+                  return;
+                }
+
+                // Backspace at offset 0 of empty line: Merge / delete line
+                if (e.key === 'Backspace') {
+                  const currentLine = getCurrentLine();
+                  if (currentLine) {
+                    const sel = window.getSelection();
+                    if (sel && sel.rangeCount > 0 && currentLine.contains(sel.anchorNode)) {
+                      const isAtStart = sel.anchorOffset === 0;
+                      const text = currentLine.textContent || '';
+                      
+                      if (isAtStart && text.trim() === '' && currentLine.previousElementSibling && editorRef.current!.children.length > 1) {
+                        e.preventDefault();
+                        const prevLine = currentLine.previousElementSibling as HTMLElement;
+                        const prevText = prevLine.textContent || '';
+                        const targetOffset = prevText.length;
+                        
+                        currentLine.remove();
+                        
+                        placeCaretAt(prevLine, targetOffset);
+                        const updatedBlocks = updateFormatting(true);
+                        setBlocks(updatedBlocks);
+                        setHasUnsavedChanges(true);
+                        updateActiveTypeFromSelection();
+                        return;
+                      }
+                    }
                   }
                 }
 
