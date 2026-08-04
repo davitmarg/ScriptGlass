@@ -57,7 +57,7 @@ export const WorkspacePickerDialog: React.FC = () => {
   return (
     <>
       <Dialog open={isWorkspacePickerOpen} onOpenChange={setIsWorkspacePickerOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-lg max-w-[95vw]">
           <DialogHeader>
             <DialogTitle>Workspace Management</DialogTitle>
             <DialogDescription>
