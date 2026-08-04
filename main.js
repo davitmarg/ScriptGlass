@@ -66,7 +66,7 @@ async function createWindow() {
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });
 
 // --- IPC Utilities ---
@@ -106,7 +106,7 @@ ipcMain.on('window-maximize', () => {
   }
 });
 ipcMain.on('window-close', () => {
-  BrowserWindow.getFocusedWindow()?.close();
+  app.quit();
 });
 
 ipcMain.handle('open-external-url', async (event, { url }) => {
@@ -224,9 +224,13 @@ ipcMain.handle('/api/workspace/git', async (event, params) => {
     const git = new GitManager(absPath);
 
     if (params.endpoint.includes('/status')) {
+      const isRepo = await git.checkRepo();
+      if (!isRepo) {
+        return { status: null, branch: null, isRepo: false };
+      }
       const status = await git.getStatus();
       const branch = await git.getBranch();
-      return { status, branch };
+      return { status, branch, isRepo: true };
     }
 
     if (params.endpoint.includes('/log')) {

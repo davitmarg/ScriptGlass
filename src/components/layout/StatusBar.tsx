@@ -22,17 +22,15 @@ export const StatusBar: React.FC = () => {
           title={gitStatus?.isRepo ? (gitStatus.status?.files?.length > 0 ? "Uncommitted changes" : gitStatus.status?.ahead > 0 ? "Unpushed changes" : "Up to date") : "Not a git repository"}
           onClick={() => setIsSyncDialogOpen(true)}
         >
-          <GitBranch className={`w-3.5 h-3.5 ${isGitHubConnected ? (gitStatus?.isRepo ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/40') : 'text-muted-foreground/20'}`} />
+          <GitBranch className={`w-3.5 h-3.5 ${gitStatus?.isRepo ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/40'}`} />
           <span className="flex items-center">
-            {!isGitHubConnected ? (
-              <span className="text-muted-foreground/40 font-normal italic select-none">GitHub Disconnected</span>
-            ) : !gitStatus?.isRepo ? (
+            {!gitStatus?.isRepo ? (
               <span className="text-muted-foreground/40 font-normal italic select-none">No Git Repo</span>
             ) : (
               <>
-                <span className="max-w-[80px] truncate">{gitStatus.branch || 'main'}</span>
+                <span className="max-w-[120px] truncate font-medium">{gitStatus.branch || 'main'}</span>
                 {(gitStatus.status?.files?.length > 0 || (gitStatus.status?.ahead || 0) > 0) && (
-                  <span className="ml-1 w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
+                  <span className="ml-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
                 )}
               </>
             )}
